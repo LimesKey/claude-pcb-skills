@@ -3,6 +3,13 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in [BACKLOG.md](BACKLOG.md).
 
+- [x] part-search brands.md - covers resistors and capacitors now, not only MLCC:
+      20 makers plus 8 part-researched ones, each scored 2Q+D+E (quality, checkable
+      data, conduct) with sourced, dated facts (cartel pleas and fines, civil
+      settlements, RBA membership, ownership, HQ). Adds a price-tie rule (within
+      10% on `ext`: highest score wins), and SKILL.md routes ties to it. `pick` stays
+      brand-blind. YAGEO and Walsin drop below the old "tier 1": no per-part
+      DC-bias tool found for either. 2026-11-12.
 - [x] repo - split out of the board project the tools were developed on. Done:
       the skills live under `skills/` as a Claude Code plugin (`.claude-plugin/`),
       with a generic `pcb-reviewer` agent, `tools/verify.sh` (goldens on any project
