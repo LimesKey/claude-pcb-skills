@@ -1,0 +1,11 @@
+{
+  "name": "pcb-skills",
+  "version": "1.0.0",
+  "description": "KiCad review and part-sourcing skills: netlist, board, footprint and schematic queries, KiCad's own DRC/ERC, scratch-copy placement and routing writers, datasheet grep, and LCSC/JLCPCB/DigiKey part selection.",
+  "author": {
+    "name": "LimesKey",
+    "url": "https://github.com/LimesKey"
+  },
+  "repository": "https://github.com/LimesKey/claude-pcb-skills",
+  "license": "MIT"
+}

@@ -1,0 +1,16 @@
+{
+  "name": "claude-pcb-skills",
+  "description": "Claude Code skills for KiCad PCB design review and electronic part selection.",
+  "owner": {
+    "name": "LimesKey",
+    "url": "https://github.com/LimesKey"
+  },
+  "plugins": [
+    {
+      "name": "pcb-skills",
+      "description": "kicad-review (knet, kpcb, kdrc, kfp, ksheet, ksch, kdoc) and part-search (part.py, kcap.py), plus a pcb-reviewer agent.",
+      "source": "./",
+      "category": "development"
+    }
+  ]
+}
