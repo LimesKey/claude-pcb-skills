@@ -3,6 +3,32 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kpcb - `tracks --kind cleanup` calibrated against master's `pcbnew/tracks_cleaner.cpp`,
+      `pcb_track.cpp`, `seg.cpp`, `connectivity_data.cpp` and the dialog's defaults (read 2026-11-13; a GUI run is
+      still impossible headless). Done: a merge needs both legs unlocked, nm-equal width and within 1 nm of one
+      line (SEG::ApproxCollinear: the old 0.05 deg test, taken at the 1 um-rounded joint, both kept 1-27 nm bends
+      and missed exactly-45 deg sub-0.1 mm legs, read as 0.1-0.6 deg); the joint is held only by another track's
+      END or a via centred exactly there (IsPointOnEnds, nm) or a same-net pad within w/2 (it was any track within
+      w/2, any via disk, a pad only containing the joint); a segment touched by any different-width trace never
+      starts a merge (per segment, not per end), so one necking leg reads "may merge (its pair order decides)" and
+      two never merge; joints freed by the dangling pass (dead tracks, vias met on one layer) merge, as KiCad
+      merges again after it. Redundant vias as KiCad walks them (stacked with the same layers: each unlocked one
+      meeting another goes, the last survives unless a locked twin does; before the dangling pass); "tracks fully
+      inside pads" rows say that option is off by default; duplicates and in-pad deletes skip locked tracks.
+      Reference board 21 -> 22 rows (18 merges, 4 "may"; 10 old rows dropped by the rules above, 11 new), each
+      traced to its rule. 2026-11-13.
+- [x] kicad-review/kpcb - `zoneshape ZONE --redraw`: the outline redrawn along what its fill keeps to anyway.
+      Done: `dontcare` (a Grid raster of a 0-width centreline: other-net copper + clearance, edge band, off-board;
+      plus no-pour rule areas and saved fills of its own net or of a zone out-ranking it, ZONE::HigherPriority
+      with the uuid tie-break); corners go greedily where the region between the old run and one new edge (two
+      on 0/45/90, tried first) is all don't-care save within eps of the old run, a same-net pad never changes
+      side, no new edge crosses the ring. `-o`'s refill proof now prints the net's copper round the zone (union
+      of fills, mm2) and, with --redraw, fails if it moves > 1% / 0.5 mm2. Reference board on a scratch copy:
+      +5V F.Cu 115 -> 71 vertices (plain 84), off-45 55 -> 3; PPHV B.Cu 79 -> 56, off-45 47 -> 13; VSYS In2 85 ->
+      51 (plain 53: the band crosses a GND plane it out-ranks, so its outline is the design); refilled copper
+      moved +0.41/-0.42/+0.06 mm2, pieces the same. Courtyards are not boundaries (they shape no fill). Found on
+      the way: the `zonepts` census row now names `--redraw`. 2026-11-13.
+
 - [x] kicad-review/kfp - `vendor`, the symbol half. Done: symbols from a library outside the repo, and those
       kicad-cli ERC calls `lib_symbol_mismatch` (edited in the schematic, any library; `--erc REPORT.json` reads a
       saved report), are written from each schematic's lib_symbols cache into `--symlib NICK` (default: the one

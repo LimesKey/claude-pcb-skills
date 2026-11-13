@@ -266,9 +266,11 @@ def census_rows(b, skip, box=None):
         rows.append((k, t['net'], t['layer'], t['mid'], f"{t['len']:.2f} mm w{t['w']:g}", 'ripup --inpour' if k == 'inpour'
                      else f"ripup {unesc_disp(t['net'].split('/')[-1])} --inpour (opt-in: may it rely on its fill?)", None))
     from kpcb_copper import dead_all, dead_desc
+    dead = set()                                     # what KiCad's dangling pass deletes: wholly dead tracks, vias
     for net, ds in dead_all(b).items():
         rf = 'RF' in (b.netclass(net) or '').upper()
         for d in ds if net not in skip else ():
+            dead |= {id(t) for t, _mm, keep in d['tracks'] if keep is None} | {id(v) for v in d['vias']}
             if d['tracks'] and all(id(t) in inp for t, *_r in d['tracks']):   # wholly in fill: its inpour row says it
                 continue
             at = d['at'] or (d['tracks'][0][0]['mid'] if d['tracks'] else (d['vias'][0]['x'], d['vias'][0]['y']) if d['vias']
@@ -290,55 +292,120 @@ def census_rows(b, skip, box=None):
         if not inb(at):
             continue
         rows.append(('detour', net, ly, at, f"{L:.1f} vs MST {M:.1f} mm, {V} via", 'reroute ' + unesc_disp(net.split('/')[-1]), None))
-    for r in cleanup_rows(b, ix, skip):
+    for r in cleanup_rows(b, ix, skip, dead):
         if inb(r[3]):
             c['cleanup'] += 1
             rows.append(r)
     return c, rows
 
 
-def cleanup_rows(b, ix, skip):
-    """what KiCad's Tools -> Cleanup Tracks & Vias (its default options) would change, predicted:
-    it cannot run headless (10.99 `api-server` answers RunAction with "not available in
-    headless mode"; stable's SWIG pcbnew has no cleaner). A collinear joint of two same-width
-    segments with nothing else there is merged (the vertex goes), a segment wholly inside one
-    same-net pad is deleted (why an end pushed to the pad centre comes back off: land it on the
-    anchor in line with the pad), a duplicate segment or via and a via on a same-net
-    through-hole pad are deleted. Dangling copper is `deadend`, 0-length `stub`."""
-    out, seen, vs = [], set(), {}
+NM = 1e6                                             # KiCad's internal unit, per mm
+
+
+def _nm(p):
+    return round(p[0] * NM), round(p[1] * NM)
+
+
+def _collinear(t1, t2):
+    """SEG::ApproxCollinear at its 1 nm default: both ends of the shorter segment within 1 nm
+    of the longer one's line, in KiCad's integer nm (rescale rounds: det^2 / l < 1.5)"""
+    a, c = (t1, t2) if t1['len'] >= t2['len'] else (t2, t1)
+    (ax, ay), (bx, by) = _nm(a['a']), _nm(a['b'])
+    p, r = ay - by, bx - ax
+    k, L = -p * ax - r * ay, p * p + r * r
+    return L > 0 and all(2 * (p * x + r * y + k) ** 2 < 3 * L for x, y in (_nm(c['a']), _nm(c['b'])))
+
+
+def cleanup_rows(b, ix, skip, dead=frozenset()):
+    """what KiCad's Tools -> Cleanup Tracks & Vias would change, predicted from master's
+    pcbnew/tracks_cleaner.cpp (read 2026-11-13): it cannot run headless (10.99 `api-server`
+    answers RunAction with "not available in headless mode"; stable's SWIG pcbnew has no
+    cleaner). Each row names its dialog option; all are on by default except "Delete tracks
+    fully inside pads" (the dialog remembers its last ticks: pcbnew.json "cleanup").
+    Merge co-linear tracks: two plain same-width segments, neither locked, the shorter's ends
+    within 1 nm of the longer's line, merge when every one of the four ends that something
+    else meets (another track's or arc's END exactly there, a via centred there, a same-net pad
+    within w/2) is an end of the merged segment, and <= 2 such ends: so the joint holds nothing.
+    A track crossing the joint mid-span or ending near it does not hold it. A segment with ANY
+    different-width trace touching it (either end, a T into its side) never starts a merge, so
+    a pair where one side necks merges or not by KiCad's pair order (object addresses): "may".
+    It merges again after the dangling pass, so a joint held only by dead copper (`dead`: ids
+    of the deadend rows' tracks and vias) or by a via met on one layer counts. Redundant vias:
+    two at one point with the same layers (one goes), a via over a through-hole pad (a via met
+    on one layer only is a deadend row: dead_copper drops its spoke). Tracks fully inside pads: both end caps in one same-net pad (an end
+    pushed to the pad centre on a new segment comes back off: land it on the anchor in line).
+    Duplicate segment: same ends, width, layer (one goes unless both are locked).
+    Not modelled: a joint held by a zone OUTLINE within 0.1 mm (ZONE::HitTest), overlapping
+    collinear pairs that touch but share no end, dangling cycles KiCad keeps (dead_all counts them)."""
+    out, at_k = [], defaultdict(list)
     lab = {id(p): f"{f.ref}.{p['num']}" for f in b.fps.values() for p in f.pads}
-    for (net, ly, n), lst in ix.ends.items():
-        if net in skip or len(lst) != 2:
-            continue
-        t1, t2 = b.tracks[lst[0]], b.tracks[lst[1]]
-        if is_arc(t1) or is_arc(t2) or abs(t1['w'] - t2['w']) > 1e-6 or min(t1['len'], t2['len']) < 1e-4:
-            continue
-        o1, o2 = (t1['b'] if q(t1['a']) == n else t1['a']), (t2['b'] if q(t2['a']) == n else t2['a'])
-        if turn(ang(o1, n), ang(n, o2)) > 0.05 or ix.on_pad(net, ly, n) or ix.on_via(net, ly, n) or \
-                any(i not in lst and pt_seg_dist(n, b.tracks[i]['a'], b.tracks[i]['b']) <= b.tracks[i]['w'] / 2
-                    for i in ix.trk[(net, ly)]):
-            continue
-        out.append(('cleanup', net, ly, n, 'collinear joint', 'KiCad merges the two segments', None))
-    for i, t in enumerate(b.tracks):
-        if not t['net'] or t['net'] in skip or is_arc(t):
-            continue
-        k = (t['net'], t['layer'], round(t['w'], 4), *sorted((q(t['a']), q(t['b']))))
-        if k in seen:
-            out.append(('cleanup', t['net'], t['layer'], t['mid'], f"duplicate {t['len']:.2f} mm segment", 'KiCad deletes one', None))
-        seen.add(k)
-        p = next((p for p in ix.pads[t['net']] if on_layer(p, t['layer'])
-                  and pad_dist(p, t['a'], True) <= -t['w'] / 2 + 1e-4 and pad_dist(p, t['b'], True) <= -t['w'] / 2 + 1e-4), None)
-        if p is not None and t['len'] >= 1e-4:
-            out.append(('cleanup', t['net'], t['layer'], t['mid'], f"{t['len']:.2f} mm wholly inside {lab[id(p)]}",
-                        'KiCad deletes it: end on the pad anchor instead', None))
+    gone = set(dead)
     for v in b.vias:
-        k = (v['net'], round(v['x'], 4), round(v['y'], 4))
-        if k in vs:
-            out.append(('cleanup', v['net'], '-', (v['x'], v['y']), 'duplicate via', 'KiCad deletes one', None))
-        vs[k] = v
-        p = next((p for p in ix.pads[v['net']] if p.get('kind') == 'thru_hole' and pad_dist(p, (v['x'], v['y'])) <= 0), None)
+        if v['net'] and v['net'] not in skip:          # redundant vias go before the dangling pass
+            at_k[(round(v['x'], 4), round(v['y'], 4), tuple(sorted(v['layers'])))].append(v)
+    for g in at_k.values():                          # each unlocked via meeting another goes: the last one
+        free = [v for v in g if not v['locked']]     # survives, unless a locked twin outlives them all
+        for i, v in enumerate(free):
+            at = (v['x'], v['y'])
+            p = next((p for p in ix.pads[v['net']] if p['drill'] and pad_dist(p, at, True) <= v['size'] / 2), None)
+            if len(g) > 1 and (i < len(free) - 1 or len(free) < len(g)):
+                out.append(('cleanup', v['net'], '-', at, 'duplicate via', 'KiCad deletes one (redundant vias)', None))
+            elif p is not None:
+                out.append(('cleanup', v['net'], '-', at, f"via on through-hole {lab[id(p)]}", 'KiCad deletes it (redundant vias)', None))
+            else:
+                continue
+            gone.add(id(v))
+
+    def plain(t):
+        return not is_arc(t) and id(t) not in gone
+
+    def necks(i):
+        t, W = b.tracks[i], round(b.tracks[i]['w'] * NM)
+        return any(j != i and plain(o := b.tracks[j]) and round(o['w'] * NM) != W
+                   and seg_seg_dist(t['a'], t['b'], o['a'], o['b']) <= (t['w'] + o['w']) / 2 for j in ix.trk[(t['net'], t['layer'])])
+
+    def held(net, ly, e, w, pair):                 # IsPointOnEnds: exact, in nm
+        k = _nm(e)
+        return any(i not in pair and id(b.tracks[i]) not in gone and k in (_nm(b.tracks[i]['a']), _nm(b.tracks[i]['b']))
+                   for i in ix.ends[(net, ly, q(e))]) or \
+            any(id(v) not in gone and _nm((v['x'], v['y'])) == k and ly in via_layers(v, b.copper) for v in ix.vias[net]) or \
+            ix.on_pad(net, ly, e, w / 2)
+
+    for (net, ly, n), lst in ix.ends.items():
+        live = [i for i in lst if id(b.tracks[i]) not in gone]
+        if net in skip or len(live) != 2:
+            continue
+        t1, t2 = b.tracks[live[0]], b.tracks[live[1]]
+        if not (plain(t1) and plain(t2)) or t1['locked'] or t2['locked'] or round(t1['w'] * NM) != round(t2['w'] * NM) \
+                or min(t1['len'], t2['len']) < 1e-4 or not _collinear(t1, t2):
+            continue
+        ends = (t1['a'], t1['b'], t2['a'], t2['b'])
+        hold = [e for e in ends if held(net, ly, e, t1['w'], live)]
+        u = ((t1['b'][0] - t1['a'][0]) / t1['len'], (t1['b'][1] - t1['a'][1]) / t1['len'])
+        s = sorted(ends, key=lambda e: e[0] * u[0] + e[1] * u[1])
+        if len(hold) > 2 or any(q(e) not in (q(s[0]), q(s[-1])) for e in hold):
+            continue
+        n1, n2 = necks(live[0]), necks(live[1])
+        if n1 and n2:
+            continue
+        freed = len(lst) > 2 or any(q((v['x'], v['y'])) == n for v in ix.vias[net] if id(v) in gone)
+        out.append(('cleanup', net, ly, n, 'collinear joint' + (' after the dangling pass' if freed else '')
+                    + (', one side necks' if n1 or n2 else ''),
+                    'KiCad may merge them (its pair order decides)' if n1 or n2 else 'KiCad merges the two segments', None))
+    dup = {}
+    for t in b.tracks:
+        if not t['net'] or t['net'] in skip or is_arc(t) or t['len'] < 1e-4:
+            continue
+        k = (t['layer'], round(t['w'], 4), *sorted((q(t['a']), q(t['b']))))
+        if k in dup and not (t['locked'] and dup[k]['locked']):
+            out.append(('cleanup', t['net'], t['layer'], t['mid'], f"duplicate {t['len']:.2f} mm segment", 'KiCad deletes one', None))
+        dup[k] = t
+        p = None if t['locked'] else next((p for p in ix.pads[t['net']] if on_layer(p, t['layer'])
+                                           and pad_dist(p, t['a'], True) <= -t['w'] / 2 + 1e-4
+                                           and pad_dist(p, t['b'], True) <= -t['w'] / 2 + 1e-4), None)
         if p is not None:
-            out.append(('cleanup', v['net'], '-', (v['x'], v['y']), f"via on through-hole {lab[id(p)]}", 'KiCad deletes it', None))
+            out.append(('cleanup', t['net'], t['layer'], t['mid'], f"{t['len']:.2f} mm wholly inside {lab[id(p)]}",
+                        'deleted only with "tracks fully inside pads" ticked (off by default): end on the pad anchor', None))
     return out
 
 
@@ -361,7 +428,7 @@ path, and CHG_VBUS 71% inside BAT_VBUS still lost 2.7 mm2 of fill, 2026-10-28). 
         short = sum(math.dist(P[i - 1], P[i]) < 0.3 for i in range(len(P)))
         if len(P) > 24 or short >= 4:
             out.append(('zonepts', z, f"{nm(z)} {len(P)} corners, {short} edge(s) < 0.3 mm",
-                        'redraw: few corners on 0/45/90 (`zoneshape UUID` proposes one; or delete and `fatten NET --amps A`)'))
+                        'redraw: few corners on 0/45/90 (`zoneshape UUID --redraw` proposes one; or delete and `fatten NET --amps A`)'))
     idx, bbs = {z.uuid: PolyIndex(z.outline) for z in zs}, {z.uuid: bbox(z.outline) for z in zs}
     def frac(z, o):                                  # share of z's area inside o, on a 0.25 mm sample grid
         bz = bbs[z.uuid]

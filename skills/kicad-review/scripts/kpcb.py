@@ -68,9 +68,10 @@ Writers (always to a new file, -o OUT; verify the copy with kdrc.py):
                                       --box), prune what dangles, drop their teardrops; `[GND]
                                       --inpour`: plane tracks wholly inside their own fill;
                                       `[NET] --deadend`: copper hanging off one point, no pad
-  kpcb.py FILE zoneshape [ZONE] [-o OUT]  zones ranked by how far from hand-drawn (vertices,
-                                      off-45, micro-edges, faceted arcs); ZONE: a simplified
-                                      0/45/90 outline, checked, -o refills scratch copies
+  kpcb.py FILE zoneshape [ZONE] [--redraw] [-o OUT]  zones ranked by how far from hand-drawn
+                                      (vertices, off-45, micro-edges, faceted arcs); ZONE: a
+                                      simplified 0/45/90 outline (--redraw: along the copper and
+                                      edge its fill keeps clear of), checked, -o refills copies
   kpcb.py FILE airwires [NET...]      what is left to route: per net, each missing link
                                       between copper pieces, nearest copper, gap
   kpcb.py FILE route NET... [-o OUT]  grid A* router (8 directions, through vias) through
@@ -950,6 +951,8 @@ def main():
     ap.add_argument('args', nargs='*')
     ap.add_argument('-r', '--radius', type=float, default=5.0,
                     help='for `where`: neighbour search radius in mm (5)')
+    ap.add_argument('--redraw', action='store_true', help='for `zoneshape ZONE`: redraw the outline along the copper '
+                    'clearance, board edge and out-ranking or same-net fills its fill keeps to anyway (far fewer corners)')
     ap.add_argument('--eps', type=float, default=None, help='for `zoneshape`: how far a dropped corner may sit '
                     'from the new edge, mm (default 0.1; edges within eps/2 of 0/45/90 snap to it)')
     ap.add_argument('--max', type=int, default=12,

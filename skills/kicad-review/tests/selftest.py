@@ -375,12 +375,16 @@ def _tvia(x, y, net):
 
 def cleanup_board(d):
     """what KiCad's Cleanup Tracks & Vias takes: a collinear joint at 8,5, a duplicated 4 mm
-    segment, a segment wholly inside J1.1, two vias stacked at 12,5"""
-    pad = lambda r, x: (f'\t(footprint "P"\n\t\t(layer "F.Cu")\n\t\t(at {x} 5)\n\t\t(property "Reference" "{r}")\n'
-                        '\t\t(pad "1" smd rect\n\t\t\t(at 0 0)\n\t\t\t(size 1 1)\n\t\t\t(layers "F.Cu")\n\t\t\t(net "N")\n\t\t)\n\t)\n')
-    return _tab_board(d, 'cleanup.kicad_pcb', 20, 10, pad('J1', 2) + pad('J2', 18) + _tseg(2, 5, 8, 5, 'N')
+    segment, a segment wholly inside J1.1, two vias stacked at 12,5; on M a free joint at 6,11
+    and one at 10,11 held by a via met on F.Cu only (dead: it goes, then the joint merges); on K a
+    joint at 6,13 whose right leg touches a 0.3 mm track (it necks: KiCad's pair order decides)"""
+    pad = lambda r, x, y=5, n='N': (f'\t(footprint "P"\n\t\t(layer "F.Cu")\n\t\t(at {x} {y})\n\t\t(property "Reference" "{r}")\n'
+                                   f'\t\t(pad "1" smd rect\n\t\t\t(at 0 0)\n\t\t\t(size 1 1)\n\t\t\t(layers "F.Cu")\n\t\t\t(net "{n}")\n\t\t)\n\t)\n')
+    run = lambda y, n, w3: (pad(f'J{y}a', 2, y, n) + pad(f'J{y}b', 18, y, n) + _tseg(2, y, 6, y, n) + _tseg(6, y, 10, y, n)
+                            + _tseg(10, y, 18, y, n, w3))
+    return _tab_board(d, 'cleanup.kicad_pcb', 20, 14, pad('J1', 2) + pad('J2', 18) + _tseg(2, 5, 8, 5, 'N')
                       + _tseg(8, 5, 18, 5, 'N') + _tseg(2, 8, 6, 8, 'N') + _tseg(2, 8, 6, 8, 'N') + _tseg(1.8, 5.1, 2.2, 5.1, 'N')
-                      + _tvia(12, 5, 'N') + _tvia(12, 5, 'N'))
+                      + _tvia(12, 5, 'N') + _tvia(12, 5, 'N') + run(11, 'M', 0.2) + _tvia(10, 11, 'M') + run(13, 'K', 0.3))
 
 
 def sym(item, ind, fp='""', name=None, ref='U', extra=None):
@@ -571,6 +575,13 @@ def faceted_board(d):
                           for k in range(13)]
     return _tab_board(d, 'faceted.kicad_pcb', 20, 10, zone('za', 'fatten P', arc(12, -90) + arc(2, 90))
                       + zone('zb', 'hand', [(14, 2), (18, 2), (18, 8), (14, 8)]))
+
+def notch_board(d):
+    """20 x 10: zr, a P zone (2,2)-(12,8) whose top edge notches round Q's pad at 7,2.4 along
+    its 0.2 mm clearance, as a raster trace leaves it: `zoneshape --redraw` drops the notch"""
+    return _tab_board(d, 'notch.kicad_pcb', 20, 10, _tab_fp('U1', 7, 2.4, [('1', 0, 0, 1, 1, 'Q')])
+                      + _gzone('F.Cu', [(2, 2), (6.3, 2), (6.3, 3.1), (7.7, 3.1), (7.7, 2), (12, 2), (12, 8), (2, 8)],
+                               None, 'band', net='P', uid='zr'))
 
 def mvvia_board(d):
     """GND filled on F.Cu and B.Cu; a free GND via at 10,10 that a SIG track down x=10 now
@@ -1990,8 +2001,10 @@ def main(pick=(), listing=False, keep=False):
     CASES.append(("kpcb edit unround again", ['kpcb.py', T('faceted2.kicad_pcb'), 'edit', 'unround', 'za', '-o',
                                               T('faceted3.kicad_pcb')], 0, ["za fatten P: already (smoothing fillet)"]))
     CASES.append(("kpcb tracks cleanup", ['kpcb.py', cleanup_board(tmp.name), 'tracks', '--kind', 'cleanup'], 0,
-                  ["KiCad cleanup would change    4 visible", "collinear joint", "duplicate 4.00 mm segment", "0.40 mm wholly inside J1.1",
-                   "duplicate via"]))
+                  ["KiCad cleanup would change    7 visible", "8.000,5.000    collinear joint", "duplicate 4.00 mm segment",
+                   "0.40 mm wholly inside J1.1", "duplicate via", "6.000,11.000   collinear joint      KiCad merges",
+                   "10.000,11.000   collinear joint after the dangling pass",
+                   "6.000,13.000   collinear joint, one side necks KiCad may merge"]))
     vp = vendor_proj(tmp.name)
     vend = ['kfp.py', os.path.join(vp, 'v.kicad_pcb'), 'vendor', '--erc', os.path.join(vp, 'erc.json')]
     CASES.append(("kfp vendor dry run", vend, 0,
@@ -2011,6 +2024,8 @@ def main(pick=(), listing=False, keep=False):
                   ["vertices 26 -> 8, off-45 edges 24 -> 0, micro-edges 24 -> 0, faceted arcs 2 -> 0; corners now sharp",
                    "outline moved <= 0.086 mm", "geometry ok"]))
     CASES.append(("kpcb zoneshape clean", ['kpcb.py', fz, 'zoneshape', 'hand'], 0, ["already clean"]))
+    CASES.append(("kpcb zoneshape redraw", ['kpcb.py', notch_board(tmp.name), 'zoneshape', 'zr', '--redraw'], 0,
+                  ["redrawn along the copper", "vertices 8 -> 4", "geometry ok"]))
     CASES.append(("kpcb tracks zonepts", ['kpcb.py', fz, 'tracks', '--kind', 'zonepts'], 0,
                   ["zones hard to edit        1 visible", "'fatten P' 26 corners, 24 edge(s) < 0.3 mm"]))
     dz = _tab_board(tmp.name, 'dupzone.kicad_pcb', 20, 10, _gzone('F.Cu', rect(2, 2, 10, 8), None, 'hand', net='P', uid='zh')

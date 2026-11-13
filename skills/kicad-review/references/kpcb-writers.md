@@ -459,7 +459,7 @@ with the absolute angle, justification centred (mirror kept). Reference board: 8
 on the first pass; the rest print "no clear spot": shrink, hide, or move by hand
 (`edit ref`). Check with `silk` and `view --layers silk`, then `kdrc` (silk only: 0 new).
 
-**`zoneshape [ZONE] [--eps E] [-o OUT]`** (`kpcb_zoneshape.py`): zones as a designer draws
+**`zoneshape [ZONE] [--redraw] [--eps E] [-o OUT]`** (`kpcb_zoneshape.py`): zones as a designer draws
 them, few vertices on 0/45/90 and corners rounded only by the zone's own fillet. Without
 ZONE: every zone ranked by the vertices the proposal drops, then off-45 edges, with micro-edges
 (< 0.3 mm) and faceted arc runs, and how many are over a designer's bar (> 24 vertices or 4+
@@ -471,10 +471,22 @@ outline moved, and refuses (exit 2) if a same-net pad centre it held falls outsi
 leaves the board. `-o OUT` writes it with the zone's fill dropped, then refills temp copies of
 the input and OUT with kicad-cli (`drc --refill-zones --save-board`, ~7 s each on the
 reference board) and compares the net's copper pieces (`kpcb_copper`): the same pads must stay
-joined. OUT is never the kicad-cli save. Reference board 2026-11-12: 85 of 102 zones flagged,
+joined; it also prints the net's copper round the zone (union of its fills, mm2) before -> after.
+OUT is never the kicad-cli save. Reference board 2026-11-12: 85 of 102 zones flagged,
 the worst `route VSYS` In2 band 85 -> 53 vertices, off-45 44 -> 10, moved <= 0.09 mm, VSYS
-still one piece. Not done: snapping to natural boundaries (edge, courtyards, neighbour zones);
-it cleans the outline it is given, it does not redraw one.
+still one piece.
+`--redraw` (~1 s a zone) first redraws the outline along what its fill keeps to anyway: a
+`Grid` raster of a 0-width centreline (other-net copper + clearance, the edge band, off the
+board), no-pour rule areas, and saved fills of its own net or of another net's zone that
+out-ranks it (a pour it out-ranks it would take: free). A run of corners goes when the region
+between it and one new edge (two on 0/45/90, tried first) is all of that, save points within E
+of the old run (a raster trace sits ON the free boundary); a same-net pad never changes side, a
+new edge never crosses the ring. So it redraws round obstacles, not through free board: a band
+crossing a plane it out-ranks keeps its shape (that outline is the design). -o fails (exit 2) if
+the refilled copper round the zone moves > 1% / 0.5 mm2 (a clearance the model missed).
+Reference board 2026-11-13: +5V 115 -> 71 vertices (plain 84), off-45 55 -> 3; PPHV B.Cu off-45
+47 -> 13; VSYS In2 85 -> 51 (plain 53); refilled copper moved 0.06-0.42 mm2, pieces the same.
+Courtyards are not boundaries (they shape no fill).
 
 **`pinlabels REF [NAME...] [--size H] [-r MAX] -o OUT`** and **`label TEXT X,Y | --near REF
 [--side b] -o OUT`** (`kpcb_label.py`): new board silk texts at spots `silk` passes.
