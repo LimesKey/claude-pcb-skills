@@ -305,10 +305,10 @@ def c_diff(b, a):
                      f"{len(tda)} added, {len(tdr)} removed (KiCad regenerates them; a moved one follows its via/track)")
         for tag, it in [('moved', m) for m in tdm] + [('added', t) for t in tda] + [('removed', t) for t in tdr]:
             if tag == 'moved':
-                (n, ly, p), (_, _, q) = it
+                (n, ly, p), (_, _, q) = it[0][:3], it[1][:3]
                 lines.append(f"  moved   {unesc_disp(n)} {ly} {p[0]:.2f},{p[1]:.2f} -> {q[0]:.2f},{q[1]:.2f}")
             else:
-                n, ly, p = it
+                n, ly, p = it[:3]
                 lines.append(f"  {tag:<7} {unesc_disp(n)} {ly} {p[0]:.2f},{p[1]:.2f}")
             if len(lines) > 400:
                 break

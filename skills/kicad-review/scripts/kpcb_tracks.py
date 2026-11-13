@@ -370,26 +370,33 @@ def _collinear(t1, t2):
 
 
 def cleanup_rows(b, ix, skip, dead=frozenset()):
-    """what KiCad's Tools -> Cleanup Tracks & Vias would change, predicted from master's
-    pcbnew/tracks_cleaner.cpp (read 2026-11-13): it cannot run headless (10.99 `api-server`
-    answers RunAction with "not available in headless mode"; stable's SWIG pcbnew has no
-    cleaner). Each row names its dialog option; all are on by default except "Delete tracks
-    fully inside pads" (the dialog remembers its last ticks: pcbnew.json "cleanup").
+    """what KiCad's Tools -> Cleanup Tracks & Vias would change, predicted from
+    pcbnew/tracks_cleaner.cpp (10.99 g8304096633, checked in the GUI 2026-11-13: it cannot run
+    headless, `api-server` answers RunAction with "not available in headless mode"; stable's SWIG
+    pcbnew has no cleaner). Each row names its dialog option; all are on by default except
+    "Delete tracks fully inside pads" (the dialog remembers its last ticks).
     Merge co-linear tracks: two plain same-width segments, neither locked, the shorter's ends
     within 1 nm of the longer's line, merge when every one of the four ends that something
-    else meets (another track's or arc's END exactly there, a via centred there, a same-net pad
-    within w/2) is an end of the merged segment, and <= 2 such ends: so the joint holds nothing.
-    A track crossing the joint mid-span or ending near it does not hold it. A segment with ANY
-    different-width trace touching it (either end, a T into its side) never starts a merge, so
-    a pair where one side necks merges or not by KiCad's pair order (object addresses): "may".
-    It merges again after the dangling pass, so a joint held only by dead copper (`dead`: ids
-    of the deadend rows' tracks and vias) or by a via met on one layer counts. Redundant vias:
-    two at one point with the same layers (one goes), a via over a through-hole pad (a via met
-    on one layer only is a deadend row: dead_copper drops its spoke). Tracks fully inside pads: both end caps in one same-net pad (an end
-    pushed to the pad centre on a new segment comes back off: land it on the anchor in line).
-    Duplicate segment: same ends, width, layer (one goes unless both are locked).
-    Not modelled: a joint held by a zone OUTLINE within 0.1 mm (ZONE::HitTest), overlapping
-    collinear pairs that touch but share no end, dangling cycles KiCad keeps (dead_all counts them)."""
+    else in the net holds is an end of the merged segment (KiCad's min/max box of the four, exact
+    in nm), and <= 2 such ends: so the joint holds nothing. testMergeCollinearSegments asks the
+    whole net island on every layer: another track's or arc's END exactly there, a via centred
+    there, a same-net pad on ANY layer within w/2 (PAD::HitTest checks its whole padstack), a
+    same-net zone or teardrop OUTLINE within max(w/2, 0.1 mm), a corner within twice that
+    (ZONE::HitTest: the outline, never the fill). Teardrops hug the pad and via entries, so a
+    joint near one does not merge: on the reference board they held all 22 joints that merge
+    once every zone is gone. A track crossing the joint mid-span or ending near it does not hold
+    it. A segment with ANY different-width trace touching it (either end, a T into its side)
+    never starts a merge, so a pair where one side necks merges or not by KiCad's pair order
+    (object addresses): "may"; so does a pair whose two possible merged boxes differ (a
+    sub-um leg). It merges again after the dangling pass, so a joint held only by dead copper
+    (`dead`: ids of the deadend rows' tracks and vias) counts. Zero-length segments go first.
+    Redundant vias: two at one point with the same layers (one goes), a via over a through-hole
+    pad (a via met on one layer only is a deadend row: dead_copper drops its spoke). Tracks fully
+    inside pads: both end caps in one same-net pad (an end pushed to the pad centre on a new
+    segment comes back off: land it on the anchor in line). Duplicate segment: same ends, width,
+    layer (one goes unless both are locked). Not modelled: a pour whose fill is a separate island
+    from the joint (counted as holding), overlapping collinear pairs that touch but share no end,
+    dangling cycles KiCad keeps (dead_all counts them)."""
     out, at_k = [], defaultdict(list)
     lab = {id(p): f"{f.ref}.{p['num']}" for f in b.fps.values() for p in f.pads}
     gone = set(dead)
@@ -417,34 +424,66 @@ def cleanup_rows(b, ix, skip, dead=frozenset()):
         return any(j != i and plain(o := b.tracks[j]) and round(o['w'] * NM) != W
                    and seg_seg_dist(t['a'], t['b'], o['a'], o['b']) <= (t['w'] + o['w']) / 2 for j in ix.trk[(t['net'], t['layer'])])
 
-    def held(net, ly, e, w, pair):                 # IsPointOnEnds: exact, in nm
-        k = _nm(e)
-        return any(i not in pair and id(b.tracks[i]) not in gone and k in (_nm(b.tracks[i]['a']), _nm(b.tracks[i]['b']))
-                   for i in ix.ends[(net, ly, q(e))]) or \
-            any(id(v) not in gone and _nm((v['x'], v['y'])) == k and ly in via_layers(v, b.copper) for v in ix.vias[net]) or \
-            ix.on_pad(net, ly, e, w / 2)
+    at_nm, ends_nm = defaultdict(list), defaultdict(list)     # exact nm ends: per net, per (net, layer)
+    for i, t in enumerate(b.tracks):
+        if not t['net'] or t['net'] in skip:
+            continue
+        if _nm(t['a']) == _nm(t['b']):
+            if not is_arc(t) and not t['locked']:
+                out.append(('cleanup', t['net'], t['layer'], t['a'], 'zero-length segment', 'KiCad deletes it', None))
+            gone.add(id(t))
+            continue
+        for e in (t['a'], t['b']):
+            at_nm[(t['net'], _nm(e))].append(i)
+            ends_nm[(t['net'], t['layer'], _nm(e))].append(i)
+    filled = {zu for _n, _f, zu in b._fill_nodes}
+    outl = defaultdict(list)                       # the net's pour and teardrop outlines, boxed
+    for o, net in [(z.outline, z[0]) for z in b.zones if not z.keepout and z.uuid in filled] + \
+            [(td[3], td[0]) for td in b.teardrops]:
+        if net and len(o) > 2:
+            outl[net].append((bbox(o), o))
 
-    for (net, ly, n), lst in ix.ends.items():
+    def on_outline(net, e, w):                     # ZONE::HitTest(pos, (w + 1) / 2)
+        a = max(w / 2, 0.1)
+        return any(x0 - 2 * a <= e[0] <= x1 + 2 * a and y0 - 2 * a <= e[1] <= y1 + 2 * a
+                   and (any(math.dist(e, v) <= 2 * a for v in o) or any(pt_seg_dist(e, o[k - 1], o[k]) <= a for k in range(len(o))))
+                   for (x0, y0, x1, y1), o in outl[net])
+
+    def held(net, e, w, pair):                     # IsPointOnEnds (exact) or HitTest, any layer
+        k = _nm(e)
+        return any(i not in pair and id(b.tracks[i]) not in gone for i in at_nm[(net, k)]) or \
+            any(id(v) not in gone and _nm((v['x'], v['y'])) == k for v in ix.vias[net]) or \
+            any(in_pad(p, e, w / 2) for p in ix.pads[net]) or on_outline(net, e, w)
+
+    def box_ok(s1, ends, hold):                    # the merged segment KiCad builds from s1's slope
+        xs, ys = [e[0] for e in ends], [e[1] for e in ends]
+        (ax, ay), (bx, by) = s1
+        ab = ((min(xs), min(ys)), (max(xs), max(ys))) if (ax > bx) == (ay > by) else ((min(xs), max(ys)), (max(xs), min(ys)))
+        return all(e in ab for e in hold)
+
+    for (net, ly, n), lst in ends_nm.items():
         live = [i for i in lst if id(b.tracks[i]) not in gone]
-        if net in skip or len(live) != 2:
+        if len(live) != 2:
             continue
         t1, t2 = b.tracks[live[0]], b.tracks[live[1]]
         if not (plain(t1) and plain(t2)) or t1['locked'] or t2['locked'] or round(t1['w'] * NM) != round(t2['w'] * NM) \
-                or min(t1['len'], t2['len']) < 1e-4 or not _collinear(t1, t2):
+                or not _collinear(t1, t2):
             continue
-        ends = (t1['a'], t1['b'], t2['a'], t2['b'])
-        hold = [e for e in ends if held(net, ly, e, t1['w'], live)]
-        u = ((t1['b'][0] - t1['a'][0]) / t1['len'], (t1['b'][1] - t1['a'][1]) / t1['len'])
-        s = sorted(ends, key=lambda e: e[0] * u[0] + e[1] * u[1])
-        if len(hold) > 2 or any(q(e) not in (q(s[0]), q(s[-1])) for e in hold):
+        ends = [_nm(e) for e in (t1['a'], t1['b'], t2['a'], t2['b'])]
+        hold = [k for k, e in zip(ends, (t1['a'], t1['b'], t2['a'], t2['b'])) if held(net, e, t1['w'], live)]
+        if len(hold) > 2:
+            continue
+        ok = [box_ok((_nm(t['a']), _nm(t['b'])), ends, hold) for t in (t1, t2)]
+        if not any(ok):
             continue
         n1, n2 = necks(live[0]), necks(live[1])
         if n1 and n2:
             continue
-        freed = len(lst) > 2 or any(q((v['x'], v['y'])) == n for v in ix.vias[net] if id(v) in gone)
-        out.append(('cleanup', net, ly, n, 'collinear joint' + (' after the dangling pass' if freed else '')
-                    + (', one side necks' if n1 or n2 else ''),
-                    'KiCad may merge them (its pair order decides)' if n1 or n2 else 'KiCad merges the two segments', None))
+        freed = len(lst) > 2 or any(_nm((v['x'], v['y'])) == n for v in ix.vias[net] if id(v) in gone)
+        may = n1 or n2 or not all(ok)
+        out.append(('cleanup', net, ly, (n[0] / NM, n[1] / NM), 'collinear joint' + (' after the dangling pass' if freed else '')
+                    + (', one side necks' if n1 or n2 else '') + (', sub-um leg' if not all(ok) else ''),
+                    'KiCad may merge them (its pair order decides)' if may else 'KiCad merges the two segments', None))
     dup = {}
     for t in b.tracks:
         if not t['net'] or t['net'] in skip or is_arc(t) or t['len'] < 1e-4:

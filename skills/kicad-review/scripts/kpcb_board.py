@@ -452,7 +452,7 @@ class Board:
         self._fill_nodes = []
         edge = []
 
-        self.teardrops = []                     # [(net, layer, (cx, cy))]: KiCad re-uuids them on regen
+        self.teardrops = []                     # [(net, layer, (cx, cy), outline)]: KiCad re-uuids them on regen
         for z in kids(root, 'zone'):
             net = val(z, 'net')
             lays = kid(z, 'layers') or kid(z, 'layer') or []
@@ -460,7 +460,7 @@ class Board:
                    if isinstance(q, list) and q and q[0] == 'xy']
             if kid(kid(z, 'attr') or [], 'teardrop'):     # pad/track fillet, not a pour
                 c = (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)) if pts else (0.0, 0.0)
-                self.teardrops.append((net, '/'.join(l for l in lays[1:] if isinstance(l, str)), c))
+                self.teardrops.append((net, '/'.join(l for l in lays[1:] if isinstance(l, str)), c, tuple(pts)))
                 continue
             pr = val(z, 'priority')
             cp = kid(z, 'connect_pads') or []           # (connect_pads yes|no|thru_hole_only ...), bare = thermal

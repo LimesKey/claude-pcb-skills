@@ -3,6 +3,18 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kpcb - confirm `tracks --kind cleanup` in the GUI. Done: ran Tools -> Cleanup Tracks & Vias in
+      10.99 (g8304096633) on a private Xvnc display (`Xvnc :99 -rfbport -1 -rfbunixpath`, its own
+      KICAD_CONFIG_HOME, xdotool aimed at :99 only) on scratch copies of the reference board at 341e42d~1. KiCad
+      merged 0 of the 22 predicted joints: testMergeCollinearSegments asks the whole net island (GetConnectedItems
+      returns the cluster) on every layer, and ZONE::HitTest is the OUTLINE within max(w/2, 0.1 mm) (a corner
+      within 2x), so teardrops hold joints near pad/via entries; PAD::HitTest(pos, acc) takes every padstack layer.
+      cleanup_rows now models both (teardrop outlines kept by the loader as a 4th tuple element), keys joints by
+      exact nm (a 1.4 nm leg merged that the 1 um buckets never saw), builds KiCad's min/max merged box from
+      either pair order (`sub-um leg` = may), and lists zero-length segments. Result: the board predicts 0 (GUI:
+      0); with every zone stripped, all 14 + 15 "merges" rows merged in two GUI runs, no "may" row is wrong.
+      Dangling: the -BATT deadend row went exactly; on the +BATT row (with a pour) KiCad took only the tips past
+      the pour, plus a 31 um attach stub inside the track it hangs off (documented in kpcb.md). 2026-11-13.
 - [x] kicad-review/kpcb - no way to carry a verified scratch result onto the real board: replaying the command log
       diverges (fresh uuids per run, refilled vs stale fills), and the scratch kicad-cli saved must never be handed
       back. Done: `kpcb.py BOARD diff SCRATCH --patch [--base COPY] -o OUT` - by uuid, the tracks and vias SCRATCH

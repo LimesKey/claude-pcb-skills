@@ -381,14 +381,22 @@ def cleanup_board(d):
     """what KiCad's Cleanup Tracks & Vias takes: a collinear joint at 8,5, a duplicated 4 mm
     segment, a segment wholly inside J1.1, two vias stacked at 12,5; on M a free joint at 6,11
     and one at 10,11 held by a via met on F.Cu only (dead: it goes, then the joint merges); on K a
-    joint at 6,13 whose right leg touches a 0.3 mm track (it necks: KiCad's pair order decides)"""
+    joint at 6,13 whose right leg touches a 0.3 mm track (it necks: KiCad's pair order decides);
+    a zero-length segment at 15,5. Held, so no row: T's joint at 9,2 by a teardrop outline 0.05 mm
+    off it, H's F.Cu joint at 14,8 by an H pad on B.Cu (PAD::HitTest takes every layer)"""
     pad = lambda r, x, y=5, n='N': (f'\t(footprint "P"\n\t\t(layer "F.Cu")\n\t\t(at {x} {y})\n\t\t(property "Reference" "{r}")\n'
                                    f'\t\t(pad "1" smd rect\n\t\t\t(at 0 0)\n\t\t\t(size 1 1)\n\t\t\t(layers "F.Cu")\n\t\t\t(net "{n}")\n\t\t)\n\t)\n')
     run = lambda y, n, w3: (pad(f'J{y}a', 2, y, n) + pad(f'J{y}b', 18, y, n) + _tseg(2, y, 6, y, n) + _tseg(6, y, 10, y, n)
                             + _tseg(10, y, 18, y, n, w3))
+    tear = ('\t(zone\n\t\t(net "T")\n\t\t(layer "F.Cu")\n\t\t(uuid "ct1")\n\t\t(attr\n\t\t\t(teardrop\n'
+            '\t\t\t\t(type padvia)\n\t\t\t)\n\t\t)\n\t\t(polygon\n\t\t\t(pts\n\t\t\t\t(xy 8 1.9) (xy 8.95 1.95)'
+            ' (xy 8.95 2.05) (xy 8 2.1)\n\t\t\t)\n\t\t)\n\t)\n')
     return _tab_board(d, 'cleanup.kicad_pcb', 20, 14, pad('J1', 2) + pad('J2', 18) + _tseg(2, 5, 8, 5, 'N')
                       + _tseg(8, 5, 18, 5, 'N') + _tseg(2, 8, 6, 8, 'N') + _tseg(2, 8, 6, 8, 'N') + _tseg(1.8, 5.1, 2.2, 5.1, 'N')
-                      + _tvia(12, 5, 'N') + _tvia(12, 5, 'N') + run(11, 'M', 0.2) + _tvia(10, 11, 'M') + run(13, 'K', 0.3))
+                      + _tvia(12, 5, 'N') + _tvia(12, 5, 'N') + run(11, 'M', 0.2) + _tvia(10, 11, 'M') + run(13, 'K', 0.3)
+                      + _tseg(15, 5, 15, 5, 'N') + pad('T1', 2, 2, 'T') + pad('T2', 18, 2, 'T') + _tseg(2, 2, 9, 2, 'T')
+                      + _tseg(9, 2, 18, 2, 'T') + tear + pad('H1', 10, 8, 'H') + pad('H2', 18, 8, 'H') + _tseg(10, 8, 14, 8, 'H')
+                      + _tseg(14, 8, 18, 8, 'H') + pad('H3', 14, 8, 'H').replace('"F.Cu"', '"B.Cu"'))
 
 
 def sym(item, ind, fp='""', name=None, ref='U', extra=None):
@@ -2060,7 +2068,8 @@ def main(pick=(), listing=False, keep=False):
     CASES.append(("kpcb edit unround again", ['kpcb.py', T('faceted2.kicad_pcb'), 'edit', 'unround', 'za', '-o',
                                               T('faceted3.kicad_pcb')], 0, ["za fatten P: already (smoothing fillet)"]))
     CASES.append(("kpcb tracks cleanup", ['kpcb.py', cleanup_board(tmp.name), 'tracks', '--kind', 'cleanup'], 0,
-                  ["KiCad cleanup would change    7 visible", "8.000,5.000    collinear joint", "duplicate 4.00 mm segment",
+                  ["KiCad cleanup would change    8 visible", "8.000,5.000    collinear joint", "duplicate 4.00 mm segment",
+                   "15.000,5.000    zero-length segment",
                    "0.40 mm wholly inside J1.1", "duplicate via", "6.000,11.000   collinear joint      KiCad merges",
                    "10.000,11.000   collinear joint after the dangling pass",
                    "6.000,13.000   collinear joint, one side necks KiCad may merge"]))
