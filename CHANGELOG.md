@@ -1,7 +1,7 @@
 # Changelog
 
 Landed backlog entries and fixes, newest at the top. Reference only: the open
-work is in [BACKLOG.md](BACKLOG.md).
+work is in a local, untracked `BACKLOG.md`.
 
 - [x] repo - CI. Done: `.github/workflows/verify.yml` runs `tools/verify.sh` on Python
       3.12 and 3.14 (ubuntu-latest, actions/checkout v7.0.1 and setup-python v7.1.0

@@ -164,7 +164,6 @@ skills/
 agents/pcb-reviewer.md
 tools/verify.sh        every check a change must pass
 tools/pack.sh          dist/*.skill bundles for claude.ai
-BACKLOG.md             open bugs and ideas
 CHANGELOG.md           what landed
 CLAUDE.md              rules for working on the skills
 ```
@@ -186,7 +185,7 @@ the project and diff the outputs: a pure refactor must read N/N unchanged.
 `x.json` lists commands that name the board's own refs or nets, as argv lists:
 `[["kpcb.py", "{pcb}", "ic", "U13"], ["knet.py", "{net}", "divider", "U8.TS"]]`.
 
-Bugs and ideas go in [BACKLOG.md](BACKLOG.md); the workflow is in
+Bugs and ideas go in a local, untracked `BACKLOG.md`; the workflow is in
 [CLAUDE.md](CLAUDE.md). Numbers the references quote for "the reference board"
 come from the 4-layer, ~470-footprint board the tools were developed on.
 
