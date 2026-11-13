@@ -3,3 +3,5 @@ __pycache__/
 .ruff_cache/
 # tools/pack.sh output (claude.ai skill bundles)
 dist/
+
+BACKLOG.md
