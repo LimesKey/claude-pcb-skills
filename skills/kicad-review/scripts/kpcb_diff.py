@@ -85,6 +85,20 @@ def _teardrops(new, old, near=1.5):
     return add, rem, moved
 
 
+def _pair(new, old):
+    """{new ref: old ref}: by footprint uuid first (deleting one REF**~dupN logo renumbers
+    the rest, so a reference match would pair unrelated logos), then by reference"""
+    ou = {}
+    for r, g in old.items():
+        if g.uuid:
+            ou.setdefault(g.uuid, r)
+    pairs = {r: ou[f.uuid] for r, f in new.items() if f.uuid and f.uuid in ou}
+    taken = set(pairs.values())
+    for r in new:
+        if r not in pairs and r in old and r not in taken:
+            pairs[r] = r
+    return pairs
+
 def c_diff(b, a):
     if not a.args:
         print("diff OLD.kicad_pcb [--box X0,Y0,X1,Y1] [-v]   (what changed from OLD to this board)"); return 1
@@ -96,9 +110,12 @@ def c_diff(b, a):
     print(f"diff {a.args[0]} -> {b.path}" + (f"  (vias and tracks in {a.box} only)" if box else ''))
     lines, same = [], []
     # footprints
-    mv, rot, flip, txt, placed = [], [], [], [], set()
-    for ref in sorted(set(b.fps) & set(o.fps), key=natkey):
-        f, g = b.fps[ref], o.fps[ref]
+    mv, rot, flip, txt, placed, ren = [], [], [], [], set(), []
+    pairs = _pair(b.fps, o.fps)
+    for ref in sorted(pairs, key=natkey):
+        f, g = b.fps[ref], o.fps[pairs[ref]]
+        if ref.split('~dup')[0] != pairs[ref].split('~dup')[0]:
+            ren.append(f"{pairs[ref]}->{ref}")
         if f.layer != g.layer:
             flip.append(ref)
         if math.dist((f.x, f.y), (g.x, g.y)) > 1e-4:
@@ -109,12 +126,14 @@ def c_diff(b, a):
             placed.add(ref)
         if sorted(map(_tkey, _silk_fields(f))) != sorted(map(_tkey, _silk_fields(g))):
             txt.append(ref)
-    add, rem = sorted(set(b.fps) - set(o.fps), key=natkey), sorted(set(o.fps) - set(b.fps), key=natkey)
-    fp_n = len(set(b.fps) & set(o.fps)) - len(placed)
-    if mv or rot or flip or add or rem:
+    add = sorted(set(b.fps) - set(pairs), key=natkey)
+    rem = sorted(set(o.fps) - set(pairs.values()), key=natkey)
+    fp_n = len(pairs) - len(placed)
+    if mv or rot or flip or add or rem or ren:
         lines.append(f"footprints: {len(mv)} moved, {len(rot)} rotated, {len(flip)} flipped, {len(add)} added, "
-                     f"{len(rem)} removed")
-        for tag, xs in (('moved', mv), ('rotated', rot), ('flipped', flip), ('added', add), ('removed', rem)):
+                     f"{len(rem)} removed" + (f", {len(ren)} renamed" if ren else ''))
+        for tag, xs in (('moved', mv), ('rotated', rot), ('flipped', flip), ('added', add), ('removed', rem),
+                        ('renamed', ren)):
             if xs:
                 lines.append(f"  {tag:<8} " + ', '.join(xs[:a.max]) + (f" +{len(xs) - a.max}" if len(xs) > a.max else ''))
     else:
@@ -125,17 +144,20 @@ def c_diff(b, a):
         Counter((ly, tuple(round(v, 3) for v in bb)) for ly, bb in o.silk)
     tb, to = {t['uuid']: t for t in b.silktexts}, {t['uuid']: t for t in o.silktexts}
     bt = [u for u in set(tb) & set(to) if _tkey(tb[u]) != _tkey(to[u])]
-    if txt or sb != so or bt:
+    cel = lambda d: {u for u, t in d.items() if t['kind'] == 'table'}     # noqa: E731
+    ca, cr = len(cel(tb) - cel(to)), len(cel(to) - cel(tb))
+    if txt or sb != so or bt or ca or cr:
         lines.append(f"silk: visible text changed on {len(txt)} footprint(s) ({len(still)} of them did not move)"
                      + (f"; board silk items {sum(so.values())} -> {sum(sb.values())}, "
                         f"{sum((sb - so).values())} new/changed" if sb != so else '')
-                     + (f"; {len(bt)} board text(s) restyled in place" if bt else ''))
+                     + (f"; {len(bt)} board text(s) restyled in place" if bt else '')
+                     + (f"; table cells {ca} added, {cr} removed" if ca or cr else ''))
         for r in still[:a.max]:
-            lines.append(f"  {r}: " + _what(_silk_fields(b.fps[r]), _silk_fields(o.fps[r])))
+            lines.append(f"  {r}: " + _what(_silk_fields(b.fps[r]), _silk_fields(o.fps[pairs[r]])))
         if len(still) > a.max:
             lines.append(f"  +{len(still) - a.max} more text-only: " + ' '.join(still[a.max:a.max * 3]))
         for u in sorted(bt, key=lambda u: tb[u]['text'])[:a.max]:
-            lines.append(f"  board text '{trunc(tb[u]['text'].replace(chr(10), ' '), 24)}': " + _what([tb[u]], [to[u]]).removeprefix('board '))
+            lines.append(f"  {'table cell' if tb[u]['kind'] == 'table' else 'board text'} '{trunc(tb[u]['text'].replace(chr(10), ' '), 24)}': " + _what([tb[u]], [to[u]]).removeprefix('board '))
     else:
         same.append("silk")
     # vias

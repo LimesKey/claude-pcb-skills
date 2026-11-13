@@ -2,11 +2,14 @@
 
 Read this before touching `part.py`'s HTTP layer. Do not re-probe what is here.
 
+**A page that is JS-only or blocked to urllib:** don't drive a browser from part.py. Open it once in a stealth browser (Patchright, where installed), log its fetch/XHR calls, and call the JSON endpoint it uses over plain HTTP: that is how `search/third` was found. Survey 2026-11-12: `ds` on the reference board's 151 LCSC parts hit no 403 or challenge page (one part has no datasheet link at all), so no command needs a browser fallback today.
+
 ## Endpoint status as recorded (probed 2026-08-18)
 
 | endpoint | status |
 | --- | --- |
 | `wmsc.lcsc.com/ftps/wm/product/detail` | works, detail by C-code, full parameters |
+| `wmsc.lcsc.com/ftps/wm/search/third` (POST, JSON `{currentPage, pageSize, productCode, from: "detail"}`) | works, plain HTTP, no browser: the product page's "Other Suppliers on LCSC" marketplace offers (`vendorCode`, `productSource`, `stockNumber`, `minBuyNumber`, `split`, `deliveryTimeWayDays`, `productPriceList` in USD, `batchNumber`). Not LCSC stock. The detail's `hasThirdPartyStock` reads false on parts whose page lists offers (C1855832), so it is no gate; the page itself asks `GET /ftps/wm/search/has/third/stock?productCode=`. `show` lists the offers, `bom`/`check`/`alt` add one line when LCSC's own stock is short; `pick` never ranks on them. Captured with Patchright 2026-11-12 |
 | `easyeda.com/api/eda/product/search` (POST, form-encoded) | works, keyword search, `pageSize` up to 200 |
 | `jlcpcb.com/api/overseas-pcb-order/v1/shoppingCart/smtGood/selectSmtComponentList` (POST, JSON) | works, no auth, 200 rows/call **with parsed attributes**; package/category/price-sort/attribute filters server-side (see below). `pick`'s default pool |
 | `jlcpcb.com/api/overseas-pcb-order/v1/componentSearch/filterComponentAttribute` (POST, JSON) | works, no auth: the parts sidebar's facets - every attribute value with its part count, per category id (+ package). Unfiltered: all ~850 category names with ids (2.5 MB). Captured 2026-09-23 |

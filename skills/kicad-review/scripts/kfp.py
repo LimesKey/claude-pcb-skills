@@ -594,7 +594,7 @@ def c_view(fps, a):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('file')
-    ap.add_argument('cmd', nargs='?', default='show', choices=['show', 'lint', 'view', 'edit', 'diff', 'libs'])
+    ap.add_argument('cmd', nargs='?', default='show', choices=['show', 'lint', 'view', 'edit', 'diff', 'libs', 'vendor'])
     ap.add_argument('args', nargs='*', help='REFs (board), or edit ops')
     ap.add_argument('-o', '--out', default='')
     ap.add_argument('--in-place', action='store_true', help='edit: allow OUT == the input file')
@@ -603,6 +603,10 @@ def main(argv=None):
     ap.add_argument('--max', type=int, default=40)
     ap.add_argument('--proj', default='', help='the project whose fp-lib-table resolves Lib:Name (default: the cwd)')
     ap.add_argument('--all', action='store_true', help='diff: also print footprints that differ only where DRC looks away')
+    ap.add_argument('--lib', default='', help='vendor: the project fp-lib-table library to copy into')
+    ap.add_argument('--models', default='', help='vendor: where 3D models go (default: beside the repo\'s models)')
+    ap.add_argument('--apply', action='store_true', help='vendor: write the copies and edits in place (default: dry run)')
+    ap.add_argument('--force', action='store_true', help='vendor --apply: write even while KiCad holds the project')
     ap.add_argument('-v', '--verbose', action='store_true', help='libs: list stock-library footprints too')
     a = ap.parse_args(argv)
     board = a.file.endswith('.kicad_pcb')
@@ -610,6 +614,9 @@ def main(argv=None):
         from kfp_diff import c_libs, c_diff
     if a.cmd == 'edit':
         from kfp_edit import c_edit
+    if a.cmd == 'vendor':
+        from kfp_vendor import c_vendor
+        return c_vendor(a) if board else (print("vendor takes a .kicad_pcb") or 1)
     if a.cmd == 'libs':
         return c_libs(a) if board else (print("libs takes a .kicad_pcb") or 1)
     if a.cmd == 'diff':

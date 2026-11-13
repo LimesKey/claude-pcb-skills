@@ -3,7 +3,7 @@ import sys, re, json
 import concurrent.futures as cf
 from part_core import (buy_qty, cached, dk_categories, dk_detail, _dk_norm, dk_query, dmoney1, _EOL_RE,
                        http, jlc_annotate, jlc_facets, jlc_lib_map, lcsc_detail, lcsc_search,
-                       LCSC_SEARCH, price_at, resolve, trunc)
+                       LCSC_SEARCH, price_at, resolve, third_note, trunc)
 from part_value import (alias_keys, attr_hit, attr_of, canon, enum, _exact, FLAG_ATTRS, fmt_si,
                         make_pred, _norm, norm_val, series_in, _short, STD_V, _UNIT_OF)
 
@@ -968,6 +968,8 @@ def c_alt(a):
           f"{ {'base':'BASIC','expand':'ext'}.get(b.get('library'), 'not in JLC lib') }\n"
           f"  holding (rerun `pick` with a subset of these to loosen):\n    "
           + '\n    '.join(flags + [f"--w {w!r}" for w in a.w]) + "\n")
+    if third_note(b, q0, a.fresh):
+        print(f"  {b.get('sku')} {third_note(b, q0, a.fresh)}\n")
     a._exclude = {b.get('sku')}
     return c_pick(a)
 

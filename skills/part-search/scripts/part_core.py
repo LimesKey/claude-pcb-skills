@@ -287,6 +287,45 @@ def lcsc_detail(code, fresh=False):
                                  ('lcsc pdfLinkUrl', r.get('pdfLinkUrl'))],
     }
 
+LCSC_THIRD = 'https://wmsc.lcsc.com/ftps/wm/search/third'
+
+def lcsc_third(code, fresh=False):
+    """[offer]: the product page's "Other Suppliers on LCSC" (marketplace sellers, NOT LCSC's
+    own stock: authenticity and lead time are the seller's). POST {productCode, from: detail};
+    plain HTTP works, no browser. Each: seller code, channel, stock, moq, multiple, lead days
+    (lo, hi), ladder [(qty, usd)], the seller's listing text, batch/date code. The detail's
+    hasThirdPartyStock reads False on parts whose page lists offers (C1855832, 2026-11-12), so
+    it is no gate."""
+    code = code.strip().upper()
+    def go():
+        d = http(LCSC_THIRD, {'currentPage': 1, 'pageSize': 30, 'productCode': code, 'from': 'detail'},
+                 headers={'Content-Type': 'application/json'})
+        return d.get('result') if isinstance(d, dict) and d.get('code') == 200 else d
+    r = cached('lcsc3p', code, go, fresh)
+    if not isinstance(r, dict):
+        return []
+    out = []
+    for p in r.get('productList') or []:
+        lad = sorted((int(x['ladder']), float(x.get('usdPrice') or x.get('currencyPrice') or 0))
+                     for x in p.get('productPriceList') or [] if x.get('ladder'))
+        out.append({'seller': p.get('vendorCode'), 'channel': p.get('productSource') or p.get('supplyChannelType'),
+                    'stock': p.get('stockNumber'), 'moq': p.get('minBuyNumber'), 'multiple': p.get('split'),
+                    'lead': tuple(p.get('deliveryTimeWayDays') or ()), 'ladder': lad,
+                    'listing': p.get('productModel'), 'batch': p.get('batchNumberEn') or p.get('batchNumber')})
+    return out
+
+def third_note(r, need=None, fresh=False):
+    """'' or one line on LCSC marketplace offers, for a table row whose own LCSC stock is short
+    of need (None: always, when the page flags offers)"""
+    if not r or r.get('source') != 'LCSC' or (need is not None and isinstance(r.get('stock'), int) and r['stock'] >= need):
+        return ''
+    offs = lcsc_third(r['sku'], fresh)
+    if not offs:
+        return ''
+    lo = min((o['ladder'][0][1] for o in offs if o['ladder']), default=None)
+    return (f"marketplace: {len(offs)} offer(s), {sum(o['stock'] or 0 for o in offs):,} in stock"
+            + (f", from US${lo:.4g}" if lo else '') + f" (not LCSC stock: `part.py show {r['sku']}`)")
+
 def lcsc_search(keyword, n=8, fresh=False):
     def go():
         return http(LCSC_SEARCH, data={'keyword': keyword, 'needAggs': 'false',

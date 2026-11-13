@@ -2,7 +2,7 @@
 import sys, os, re, json
 import concurrent.futures as cf
 from part_core import (buy_qty, conv, dmoney1, _FX, jlc_detail, lcsc_detail, load_knet, money,
-                       price_at, trunc)
+                       price_at, third_note, trunc)
 
 CODE_RE = re.compile(r'\bC\d{3,}\b')
 
@@ -88,6 +88,8 @@ def c_bom(a):
               f"{r['per_board']:>4} {r['buy']:>7} {dmoney1(r['unit'],'USD',a):>10} "
               f"{dmoney1(r['ext'],'USD',a):>9}  "
               f"{r['stock']:>10,}  {' '.join(r['refs'][:6])}{low}")
+        if low and third_note(lcsc_detail(r['lcsc']), r['buy']):
+            print(f"{'':<12} {third_note(lcsc_detail(r['lcsc']), r['buy'])}")
     ct = conv(total, 'USD', a.currency)
     if a.currency != 'USD' and ct is not None:
         _FX['used'] = True
@@ -217,6 +219,8 @@ def c_check(a):
               f"{dmoney1(r['ext'],'USD',a):>9}  "
               f"{(f'{st:,}' if isinstance(st,int) else '?'):>9}  {r['jlc']:<14} "
               f"{' '.join(r['refs'][:6])}{low}")
+        if low and third_note(lcsc_detail(r['lcsc']), r['buy']):
+            print(f"{'':<12} {third_note(lcsc_detail(r['lcsc']), r['buy'])}")
     ct = conv(total, 'USD', a.currency)
     if a.currency != 'USD' and ct is not None:
         _FX['used'] = True

@@ -42,7 +42,8 @@ Commands:
   kpcb.py FILE refdes [REF..] -o OUT  re-place designators beside their parts, clear of all
                                       that (--all, --show hidden ones, --size H --thick T)
   kpcb.py FILE pinlabels REF [NAME..] -o OUT   an aligned column of pin labels beside REF's
-                                      pads (names: NAMEs, else the nets through fuses/0R)
+                                      pads (names: NAMEs, else the nets through fuses/0R);
+                                      `--table [TITLE] [--title-col]`: a silk table on the pin pitch
   kpcb.py FILE label TEXT X,Y|--near REF -o OUT   TEXT at the nearest clear silk spot
   kpcb.py FILE movecheck REF X Y [ROT] what a move would newly break: foreign copper inside
                                       the clearance, copper to edge, courtyard overlap;
@@ -67,6 +68,9 @@ Writers (always to a new file, -o OUT; verify the copy with kdrc.py):
                                       --box), prune what dangles, drop their teardrops; `[GND]
                                       --inpour`: plane tracks wholly inside their own fill;
                                       `[NET] --deadend`: copper hanging off one point, no pad
+  kpcb.py FILE zoneshape [ZONE] [-o OUT]  zones ranked by how far from hand-drawn (vertices,
+                                      off-45, micro-edges, faceted arcs); ZONE: a simplified
+                                      0/45/90 outline, checked, -o refills scratch copies
   kpcb.py FILE airwires [NET...]      what is left to route: per net, each missing link
                                       between copper pieces, nearest copper, gap
   kpcb.py FILE route NET... [-o OUT]  grid A* router (8 directions, through vias) through
@@ -158,6 +162,7 @@ from kpcb_ic import c_ic, role_pads
 from kpcb_view import c_view
 from kpcb_silk import c_silk, c_refdes
 from kpcb_label import c_pinlabels, c_label
+from kpcb_zoneshape import c_zoneshape
 from kpcb_move import c_movecheck
 from kpcb_freebox import c_freebox
 from kpcb_tidy import c_tidy
@@ -922,7 +927,8 @@ CMDS = {'summary': c_summary, 'check': c_check, 'where': c_where, 'map': c_map,
         'edit': c_edit, 'copper': c_copper, 'fatten': c_fatten, 'stitch': c_stitch, 'unhook': c_unhook,
         'vscan': c_vscan, 'smooth': c_smooth, 'tracks': c_tracks, 'widen': c_widen, 'loops': c_loops,
         'diff': c_diff, 'refdes': c_refdes, 'pinlabels': c_pinlabels, 'label': c_label,
-        'congest': c_congest, 'fanout': c_fanout, 'reroute': c_reroute, 'refslots': c_refslots}
+        'congest': c_congest, 'fanout': c_fanout, 'reroute': c_reroute, 'refslots': c_refslots,
+        'zoneshape': c_zoneshape}
 
 LIMITS = (('edge', 0.5, 'courtyard-to-board-edge minimum, mm'),
           ('hole', 1.5, 'keepout beyond a mounting hole pad radius, mm'),
@@ -944,6 +950,8 @@ def main():
     ap.add_argument('args', nargs='*')
     ap.add_argument('-r', '--radius', type=float, default=5.0,
                     help='for `where`: neighbour search radius in mm (5)')
+    ap.add_argument('--eps', type=float, default=None, help='for `zoneshape`: how far a dropped corner may sit '
+                    'from the new edge, mm (default 0.1; edges within eps/2 of 0/45/90 snap to it)')
     ap.add_argument('--max', type=int, default=12,
                     help='max lines per rule / per neighbour list before a +N tail (12)')
     ap.add_argument('--cols', type=int, default=48, help='for `map`: grid width (48)')
@@ -1110,6 +1118,11 @@ def main():
     ap.add_argument('--show', action='store_true', help='for `refdes`: also place (and unhide) hidden designators')
     ap.add_argument('--size', type=float, default=None, help='for `refdes`: designator text height, mm (default: kept, >= the fab minimum); '
                     'for `pinlabels`/`label`: text height (default 1, >= the fab minimum)')
+    ap.add_argument('--table', nargs='?', const='', default=None, metavar='TITLE',
+                    help='for `pinlabels`: a silk table instead of loose texts, rows on the pin pitch, '
+                    'with a knockout title row (TITLE; none when omitted)')
+    ap.add_argument('--title-col', action='store_true', help='for `pinlabels --table`: the title as a '
+                    'knockout column spanning every row, on the far side from the pads')
     ap.add_argument('--thick', type=float, default=None, help='for `refdes`: stroke thickness, mm (default: kept; 0.15 x --size)')
     ap.add_argument('--view', default='', help='for `tracks`: also a PNG montage of the listed rows, one panel each')
     ap.add_argument('--drc', default='', help='for `ripup`: a kicad-cli DRC JSON (`kdrc.py --report`): rip up the items it flags')

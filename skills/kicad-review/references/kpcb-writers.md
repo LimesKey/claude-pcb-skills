@@ -459,6 +459,23 @@ with the absolute angle, justification centred (mirror kept). Reference board: 8
 on the first pass; the rest print "no clear spot": shrink, hide, or move by hand
 (`edit ref`). Check with `silk` and `view --layers silk`, then `kdrc` (silk only: 0 new).
 
+**`zoneshape [ZONE] [--eps E] [-o OUT]`** (`kpcb_zoneshape.py`): zones as a designer draws
+them, few vertices on 0/45/90 and corners rounded only by the zone's own fillet. Without
+ZONE: every zone ranked by the vertices the proposal drops, then off-45 edges, with micro-edges
+(< 0.3 mm) and faceted arc runs, and how many are over a designer's bar (> 24 vertices or 4+
+micro-edges, the `tracks --kind zonepts` rule). With ZONE (uuid prefix or name): `unround`,
+then `simplify` at E (0.1 mm), then edges within E/2 of 0/45/90 put on that line
+(`kpcb_fillet.octilinear`, refused if it strays > E from its input); net, priority and the rest
+stay. The dry run reports vertices/off-45/micro/arcs before -> after, area, how far the
+outline moved, and refuses (exit 2) if a same-net pad centre it held falls outside or a vertex
+leaves the board. `-o OUT` writes it with the zone's fill dropped, then refills temp copies of
+the input and OUT with kicad-cli (`drc --refill-zones --save-board`, ~7 s each on the
+reference board) and compares the net's copper pieces (`kpcb_copper`): the same pads must stay
+joined. OUT is never the kicad-cli save. Reference board 2026-11-12: 85 of 102 zones flagged,
+the worst `route VSYS` In2 band 85 -> 53 vertices, off-45 44 -> 10, moved <= 0.09 mm, VSYS
+still one piece. Not done: snapping to natural boundaries (edge, courtyards, neighbour zones);
+it cleans the outline it is given, it does not redraw one.
+
 **`pinlabels REF [NAME...] [--size H] [-r MAX] -o OUT`** and **`label TEXT X,Y | --near REF
 [--side b] -o OUT`** (`kpcb_label.py`): new board silk texts at spots `silk` passes.
 `pinlabels`: one label per pin in an aligned column, at the first clear offset from the pin
@@ -466,6 +483,13 @@ row on either side up to MAX (3 mm); NAMEs go to pins 1..N, else every netted pa
 net name, followed through a fuse or 0R while it is `Net-(..)`; with no column it names
 the blockers. `label`: the clear spot nearest X,Y (or REF's designator, which it hides),
 0 then 90 deg, within -r (3 mm). Both dry-run without -o.
+`pinlabels ... --table [TITLE] [--title-col]` writes the names as one silk `(table ...)`
+instead: a row per pin on the pin pitch (each row centred on its pin), cells 0.9 x h per
+character + 0.2 mm margins, borders and separators at the label stroke, a knockout title
+row above (or `--title-col`: a knockout title column spanning every row, on the far side
+from the pads). The whole table box must pass `silk` at the first clear offset. Upright
+only, so the pin row must be vertical and evenly pitched (KiCad 10.99 skews a rotated
+table); a pitch under h + 0.4 mm asks for a smaller --size.
 
 **`place` escapes and `--shove`.** A copper-clear spot is kept only if every SMD pad there
 reaches its net's track/via/pad or a legal via spot within 1.5 mm of free board (0.15 mm,

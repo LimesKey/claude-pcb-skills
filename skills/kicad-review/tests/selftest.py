@@ -58,7 +58,7 @@ CASES = [
     ("knet walk",    ['knet.py', NET, 'walk', '/DANGLE'],       0, ["R2.2", "DNP"]),
     ("knet draw",    ['knet.py', NET, 'draw', 'U1', '-d', '2', '-o', svg1], 0, []),
     ("ksch render",  ['ksch.py', 'render', '-o', svg2, KSCH],   0, []),   # + no ERROR (checked below)
-    ("kdrc selftest", ['kdrc.py', '--selftest'],                0, ["15/15 passed"]),
+    ("kdrc selftest", ['kdrc.py', '--selftest'],                0, ["16/16 passed"]),
     ("kpcb check",   ['kpcb.py', PCB, 'check'],                 2, ["4 error, 10 warn, 3 info"]),
     ("kpcb summary", ['kpcb.py', PCB, 'summary'],               0, ["40.00 x 30.00 mm", "placed 16"]),
     # nightly writes (transform (translate X Y) (rotate R)); read as (at) it parks all at 0,0
@@ -370,6 +370,45 @@ def _tvia(x, y, net):
     import uuid as U
     return (f'\t(via\n\t\t(at {x} {y})\n\t\t(size 0.6)\n\t\t(drill 0.3)\n\t\t(layers "F.Cu" "B.Cu")\n'
             f'\t\t(net "{net}")\n\t\t(uuid "{U.uuid4()}")\n\t)\n')
+
+
+def cleanup_board(d):
+    """what KiCad's Cleanup Tracks & Vias takes: a collinear joint at 8,5, a duplicated 4 mm
+    segment, a segment wholly inside J1.1, two vias stacked at 12,5"""
+    pad = lambda r, x: (f'\t(footprint "P"\n\t\t(layer "F.Cu")\n\t\t(at {x} 5)\n\t\t(property "Reference" "{r}")\n'
+                        '\t\t(pad "1" smd rect\n\t\t\t(at 0 0)\n\t\t\t(size 1 1)\n\t\t\t(layers "F.Cu")\n\t\t\t(net "N")\n\t\t)\n\t)\n')
+    return _tab_board(d, 'cleanup.kicad_pcb', 20, 10, pad('J1', 2) + pad('J2', 18) + _tseg(2, 5, 8, 5, 'N')
+                      + _tseg(8, 5, 18, 5, 'N') + _tseg(2, 8, 6, 8, 'N') + _tseg(2, 8, 6, 8, 'N') + _tseg(1.8, 5.1, 2.2, 5.1, 'N')
+                      + _tvia(12, 5, 'N') + _tvia(12, 5, 'N'))
+
+
+def vendor_proj(d):
+    """a project whose board takes ext:R from a library outside it, with a 3D model there too,
+    and a schematic naming ext:R in a placed symbol and in its lib_symbols cache"""
+    pj, ext = os.path.join(d, 'vend'), os.path.join(d, 'vend_ext')
+    for x in (pj, os.path.join(pj, 'lib', 'p.pretty'), os.path.join(ext, 'ext.pretty')):
+        os.makedirs(x, exist_ok=True)
+    mod = ('(footprint "R"\n\t(version 20240108)\n\t(generator "pcbnew")\n\t(layer "F.Cu")\n'
+           '\t(property "Reference" "REF**"\n\t\t(at 0 -1.5 0)\n\t\t(layer "F.SilkS")\n\t)\n'
+           '\t(attr smd)\n\t(pad "1" smd rect\n\t\t(at -0.5 0)\n\t\t(size 0.5 0.5)\n\t\t(layers "F.Cu")\n\t)\n'
+           '\t(pad "2" smd rect\n\t\t(at 0.5 0)\n\t\t(size 0.5 0.5)\n\t\t(layers "F.Cu")\n\t)\n'
+           f'\t(model "{ext}/R.step"\n\t\t(offset\n\t\t\t(xyz 0 0 0)\n\t\t)\n\t)\n)\n')
+    for path, txt in ((os.path.join(ext, 'ext.pretty', 'R.kicad_mod'), mod), (os.path.join(ext, 'R.step'), 'step\n'),
+                      (os.path.join(pj, 'v.kicad_pro'), '{}'),
+                      (os.path.join(pj, 'fp-lib-table'), '(fp_lib_table\n\t(version 7)\n'
+                       f'\t(lib (name "p") (type "KiCad") (uri "${{KIPRJMOD}}/lib/p.pretty") (options "") (descr ""))\n'
+                       f'\t(lib (name "ext") (type "KiCad") (uri "{ext}/ext.pretty") (options "") (descr ""))\n)\n'),
+                      (os.path.join(pj, 'v.kicad_sch'), '(kicad_sch\n\t(version 20250114)\n\t(lib_symbols\n'
+                       '\t\t(symbol "Device:R"\n\t\t\t(property "Footprint" "ext:R"\n\t\t\t)\n\t\t)\n\t)\n'
+                       '\t(symbol\n\t\t(lib_id "Device:R")\n\t\t(property "Reference" "R1"\n\t\t)\n'
+                       '\t\t(property "Footprint" "ext:R"\n\t\t)\n\t)\n)\n')):
+        with open(path, 'w') as fh:
+            fh.write(txt)
+    body = mod.replace('(footprint "R"', '(footprint "ext:R"').replace('"REF**"', '"R1"').replace(
+        '\t(layer "F.Cu")\n', '\t(layer "F.Cu")\n\t(at 10 5)\n', 1)
+    body = ''.join('\t' + ln + '\n' for ln in body.rstrip('\n').split('\n'))
+    _tab_board(pj, 'v.kicad_pcb', 20, 10, body)
+    return pj
 
 
 def power_board(d):
@@ -1915,6 +1954,24 @@ def main(pick=(), listing=False):
                    "unround zb hand: no arc runs"]))
     CASES.append(("kpcb edit unround again", ['kpcb.py', T('faceted2.kicad_pcb'), 'edit', 'unround', 'za', '-o',
                                               T('faceted3.kicad_pcb')], 0, ["za fatten P: already (smoothing fillet)"]))
+    CASES.append(("kpcb tracks cleanup", ['kpcb.py', cleanup_board(tmp.name), 'tracks', '--kind', 'cleanup'], 0,
+                  ["KiCad cleanup would change    4 visible", "collinear joint", "duplicate 4.00 mm segment", "0.40 mm wholly inside J1.1",
+                   "duplicate via"]))
+    vp = vendor_proj(tmp.name)
+    CASES.append(("kfp vendor dry run", ['kfp.py', os.path.join(vp, 'v.kicad_pcb'), 'vendor'], 0,
+                  ["vendor into p (lib/p.pretty), models into lib/3dmodels", "footprint ext:R -> p:R  (R1): library file",
+                   "models: 1 file(s) from", "-> ${KIPRJMOD}/lib/3dmodels/R.step  (R1)", "schematic v.kicad_sch: 1 Footprint field(s)",
+                   "board: 1 footprint(s) re-pointed", "(dry run: --apply"]))
+    CASES.append(("kfp vendor --apply", ['kfp.py', os.path.join(vp, 'v.kicad_pcb'), 'vendor', '--apply', '--force'], 0,
+                  ["wrote 1 footprint(s), 1 model file(s), the board, 1 schematic(s)"]))
+    CASES.append(("kfp vendor result", ['kfp.py', os.path.join(vp, 'v.kicad_pcb'), 'vendor'], 0,
+                  ["nothing outside the repo: already self-contained"]))
+    CASES.append(("kpcb zoneshape lint", ['kpcb.py', fz, 'zoneshape'], 0,
+                  ["2 zone(s), 1 not hand-drawn style", "1 over a designer's bar", "za        P                  F.Cu     26    24    24    2  26 -> 8 pts  [fatten P]"]))
+    CASES.append(("kpcb zoneshape one", ['kpcb.py', fz, 'zoneshape', 'za'], 0,
+                  ["vertices 26 -> 8, off-45 edges 24 -> 0, micro-edges 24 -> 0, faceted arcs 2 -> 0; corners now sharp",
+                   "outline moved <= 0.086 mm", "geometry ok"]))
+    CASES.append(("kpcb zoneshape clean", ['kpcb.py', fz, 'zoneshape', 'hand'], 0, ["already clean"]))
     CASES.append(("kpcb tracks zonepts", ['kpcb.py', fz, 'tracks', '--kind', 'zonepts'], 0,
                   ["zones hard to edit        1 visible", "'fatten P' 26 corners, 24 edge(s) < 0.3 mm"]))
     dz = _tab_board(tmp.name, 'dupzone.kicad_pcb', 20, 10, _gzone('F.Cu', rect(2, 2, 10, 8), None, 'hand', net='P', uid='zh')
@@ -1947,6 +2004,14 @@ def main(pick=(), listing=False):
     CASES.append(("kpcb pinlabels", ['kpcb.py', sab, 'pinlabels', 'J1', '-o', T('silkart/pl.kicad_pcb')], 0,
                   ["pinlabels J1: 1=VCC 2=VBAT", "F side, -x of the pads at ", "wrote 2 text(s)"]))
     CASES.append(("kpcb pinlabels result", ['kpcb.py', T('silkart/pl.kicad_pcb'), 'silk', 'J1'], 0, ["'VBAT'", "'VCC'"]))
+    CASES.append(("kpcb pinlabels --table", ['kpcb.py', sab, 'pinlabels', 'J1', '--table', 'PWR', '--title-col',
+                                              '-o', T('silkart/tb.kicad_pcb')], 0,
+                  ["-x of the pads at 0.42 mm: 7.10 x 5.08 mm, 2 row(s) on the 2.54 mm pitch, title 'PWR' as a column",
+                   "wrote 1 table (4 cells)"]))
+    CASES.append(("kpcb table read by silk", ['kpcb.py', T('silkart/tb.kicad_pcb'), 'silk', '--box', '20,6,28,12'], 0,
+                  ["table cell           'VCC'", "table cell           'PWR'", "1/0.15 knockout"]))
+    CASES.append(("kpcb table diff", ['kpcb.py', T('silkart/tb.kicad_pcb'), 'diff', sab], 0,
+                  ["board silk items 4 -> 5, 1 new/changed; table cells 3 added, 0 removed"]))
     CASES.append(("kpcb label --near", ['kpcb.py', sab, 'label', 'PWR', '--near', 'J1'], 0,
                   ["label 'PWR' F at ", "J1's designator hidden"]))
     CASES.append(("kpcb silk list", ['kpcb.py', srb, 'silk', 'R1'], 0, ["R1 designator", "(pad"]))
@@ -1994,6 +2059,17 @@ def main(pick=(), listing=False):
                   ["IN SYNC", "[INFO] SYNCART", "(3): REF** REF**~dup2 REF**~dup3", "[WARN] SYNCART",
                    "REF**~dup2 (Logo at 10.0,5.0 F) lacks board_only: Update PCB deletes it",
                    "REF**~dup3 (Logo at 15.0,5.0 B) lacks board_only"]))
+    # diff pairs by uuid: deleting the middle logo renumbers dup3 -> dup2, which is no change
+    du = open(dp).read()
+    for i, x in enumerate((5, 10, 15)):
+        du = du.replace(f'(at {x} 5)', f'(at {x} 5) (uuid "u{i}")', 1)
+    du0, du1 = os.path.join(tmp.name, 'du0.kicad_pcb'), os.path.join(tmp.name, 'du1.kicad_pcb')
+    with open(du0, 'w') as fh:
+        fh.write(du)
+    with open(du1, 'w') as fh:
+        fh.write(re.sub(r' \(footprint "Logo" \(layer "F.Cu"\) \(at 10 5\) \(uuid "u1"\).*?"F.SilkS"\)\)\)', '', du, count=1))
+    CASES.append(("kpcb diff pairs by uuid", ['kpcb.py', du1, 'diff', du0], 0,
+                  ["footprints: 0 moved, 0 rotated, 0 flipped, 0 added, 1 removed", "removed  REF**~dup2"]))
     sp = scale_board(tmp.name)
     CASES.append(("kpcb where scale+origin", ['kpcb.py', sp, 'where', 'S1', '--origin', 'grid'], 0,
                   ["relative to the grid origin 5,5", "at        : 5.000, 5.000  rot 0  layer F.Cu  scale 0.5 x 0.5",

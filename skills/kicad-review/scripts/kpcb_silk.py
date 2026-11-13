@@ -53,7 +53,7 @@ TTF_STROKE = 0.116
 def size_short(x, mh, mt):
     """'' or why a text is under the fab minimum: height/thickness, a TTF's glyph stroke, or
     a knockout's margin (height / 9: KiCad fails knockout DIN at 1.3 mm, passes it at 1.5)"""
-    if x.get('knockout'):
+    if x.get('knockout') and x['kind'] != 'table':      # a knockout table cell fills to its margins
         need = max(mh, mt * 9, mt / TTF_STROKE if x.get('ttf') else 0)
         return f"knockout at {x['h']:g} mm: its margin (height / 9) under the {mt:g} mm minimum (needs >= " \
                f"~{need:.3g} mm)" if x['h'] < need - 1e-6 else ''
@@ -195,7 +195,7 @@ class Silk:
                 out.append(('SILK-OVERLAP', f"over logo {g.ref or '(blank)'}" if g else 'over board art', g.ref if g else ''))
             elif kind == 'text' and extra is not me and anyp(lambda pb: any(hit(pb, ob) for ob in extra.get('parts') or [ib])):
                 who = (f"{g.ref}'s {extra['kind'].lower()}" if extra['kind'] != 'Reference' else f"{g.ref}'s designator") \
-                    if g else f"board text '{trunc(extra['text'], 16)}'"
+                    if g else f"{'table cell' if extra['kind'] == 'table' else 'board text'} '{trunc(extra['text'], 16)}'"
                 out.append(('SILK-OVERLAP', f"over {who}", g.ref if g else ''))
         dedup, seen = [], set()
         for r in out:
@@ -304,13 +304,13 @@ def findings(b, a, S=None):
         add('INFO', 'SILK-HIDDEN', f"{len(hidden)} designator(s) hidden or off the silk: {' '.join(hidden[:24])}"
             + (f" +{len(hidden) - 24} more" if len(hidden) > 24 else '') + " (`refdes --show` places them)", [])
     for x in b.silktexts:
-        name = f"board text '{trunc(x['text'], 20)}'"
+        name = f"{'table cell' if x['kind'] == 'table' else 'board text'} '{trunc(x['text'], 20)}'"
         side = x['layer'][0] == 'B'
         for rule, msg, other in S.hits(x['box'], side, x, None):
             add('WARN', rule, f"{name} {msg}", [other])
         if S.edge_gap(x['box'], x) < clr:
             add('WARN', 'SILK-EDGE', f"{name} {'off the board' if S.edge_gap(x['box'], x) < 0 else 'inside the edge clearance'}", [])
-        if size_short(x, mh, mt):
+        if x['text'].strip() and size_short(x, mh, mt):
             add('WARN', 'SILK-SIZE', f"{name} {size_short(x, mh, mt)}", [])
         if x['mirror'] != side:
             add('WARN', 'SILK-MIRROR', f"{name} on {x['layer']} is {'not ' if side else ''}mirrored", [])
@@ -375,12 +375,12 @@ def silk_list(b, a):
     print(f"silk in {box[0]:.2f},{box[1]:.2f} .. {box[2]:.2f},{box[3]:.2f}: {len(rows)} text(s) "
           f"(move one: `edit ref REF X,Y ANG` / `edit text UUID X,Y ANG`; [uuid] = board or user text)")
     for f, x in sorted(rows, key=lambda r: (r[1]['layer'], r[1]['y'], r[1]['x'])):
-        who = f"{f.ref} {'designator' if x['kind'] == 'Reference' else x['kind'].lower()}" if f else 'board text'
+        who = f"{f.ref} {'designator' if x['kind'] == 'Reference' else x['kind'].lower()}" if f else 'table cell' if x['kind'] == 'table' else 'board text'
         flags = ', '.join(sorted(r.replace('SILK-', '').lower() for r in per.get(id(x), ())))
         print(f"  {x['layer'][0]}  {who:<20} {trunc(x['text'], 18)!r:<20} {x['x']:8.3f},{x['y']:<8.3f} {x['ang']:>4g} deg  "
               f"{x['h']:g}/{x['thick']:g}" + (' TTF' if x.get('ttf') else '') + (' knockout' if x.get('knockout') else '')
               + (' hidden' if x['hidden'] else '')
-              + (f"  [{x['uuid'][:8]}]" if (not f or x['kind'] == 'user') and x['uuid'] else '')
+              + (f"  [{x['uuid'][:8]}]" if (not f or x['kind'] == 'user') and x['kind'] != 'table' and x['uuid'] else '')
               + (f"  ({flags})" if flags else ''))
     return 0
 

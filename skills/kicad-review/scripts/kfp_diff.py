@@ -319,13 +319,12 @@ def c_libs(a):
         k = where(rp)
         mk[k] += len(refs)
         if k not in ('stock', 'repo'):
-            out_.append((w, refs))
+            out_.append((k, w, refs))
     rr = lambda refs: refrange(sorted(refs, key=natkey)) if len(refs) > 1 else refs[0]   # noqa: E731
     print(f"3D models: {sum(mk.values())} part(s) resolve ({', '.join(f'{n} {k}' for k, n in mk.most_common())})"
           + f"; {sum(len(r) for _w, r in bad)} part(s) name a file that does not exist")
-    for tag, rows in (('missing', bad), ('outside the repo', out_)):
-        for w, refs in sorted(rows)[:a.max]:
-            print(f"  {tag:<17} {w}  ({rr(refs)})")
+    for tag, w, refs in (sorted(('missing', w, r) for w, r in bad) + sorted(out_))[:2 * a.max]:
+        print(f"  {tag:<17} {w}  ({rr(refs)})")
     print("A board carries its own footprint copies, so fab output never needs a library. 'outside the repo' "
           "is what a clone cannot refresh (Update Footprint), lint, or render in 3D: copy those footprints/models "
           "into the project library (lib/) to make the repo self-contained.")

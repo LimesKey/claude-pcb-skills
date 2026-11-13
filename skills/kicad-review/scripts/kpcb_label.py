@@ -7,6 +7,11 @@ from the pin row (an aligned column), at the first clear offset on either side, 
 followed through a fuse or 0R to the named net beyond. When no column fits it names what
 blocks it.
 
+`pinlabels REF [NAME...] --table [TITLE] [--title-col] -o OUT`: the same names as one silk
+table, a row per pin on the pin pitch, with a knockout title row above (or, --title-col, a
+knockout title column spanning every row on the far side from the pads). Upright only: the
+pin row must be vertical (KiCad 10.99 skews a rotated table), its pins evenly pitched.
+
 `label TEXT X,Y | --near REF [--size H] [-r R] [--side b] -o OUT`: TEXT at the clear spot
 nearest X,Y (or REF's designator, which is then hidden), within R mm (default 3)."""
 import math
@@ -97,6 +102,8 @@ def c_pinlabels(b, a):
         print(f"{f.ref}: no netted pad to label"); return 1
     h = max(a.size or H, limits(b)[0])
     S = Silk(b)
+    if a.table is not None:
+        return c_table(b, a, f, rows, h, S)
     best, blk = column(S, [p for p, _n in rows], [n for _p, n in rows], f.back, h,
                        a.radius if a.radius != 5.0 else 3.0)
     print(f"pinlabels {f.ref}: " + ' '.join(f"{p['num']}={n}" for p, n in rows))
@@ -165,4 +172,105 @@ def _write(b, a, texts, back, h, hide=None):
         t.sub(hide.uuid, s[:m.start()] + edit_text(m.group(0), hide=True) + s[m.end():])
     t.save(a.out)
     print(f"wrote {len(texts)} text(s) -> {a.out}; check: kpcb.py {a.out} silk")
+    return 0
+
+
+M = 0.2                                              # cell margin, KiCad's default
+
+
+def table_cell(txt, box, span, back, h, t, ko):
+    import uuid
+    x0, y0, x1, y1 = box
+    return (f'\t\t\t(table_cell {qs(txt)}\n\t\t\t\t(start {num(x0)} {num(y0)})\n\t\t\t\t(end {num(x1)} {num(y1)})\n'
+            f'\t\t\t\t(margins {M} {M} {M} {M})\n\t\t\t\t(span {span[0]} {span[1]})\n'
+            f'\t\t\t\t(layer "{"B" if back else "F"}.SilkS")\n\t\t\t\t(uuid "{uuid.uuid4()}")\n'
+            f'\t\t\t\t(effects\n\t\t\t\t\t(font\n\t\t\t\t\t\t(size {num(h)} {num(h)})\n\t\t\t\t\t\t(thickness {num(t)})\n'
+            f'\t\t\t\t\t)\n' + ('\t\t\t\t\t(justify mirror)\n' if back else '') +
+            f'\t\t\t\t)\n\t\t\t\t(knockout {"yes" if ko else "no"})\n\t\t\t)\n')
+
+
+def table_sexp(cells, widths, heights, back, t, header):
+    """a KiCad 10.99 (table ...) around its table_cell blocks, row-major (a cell covered by a
+    merged one is an empty cell with span 0 0)"""
+    import uuid
+    st = f'\t\t\t(stroke\n\t\t\t\t(width {num(t)})\n\t\t\t\t(type solid)\n\t\t\t)\n'
+    return (f'\t(table\n\t\t(uuid "{uuid.uuid4()}")\n\t\t(layer "{"B" if back else "F"}.SilkS")\n'
+            f'\t\t(column_count {len(widths)})\n\t\t(border\n\t\t\t(external yes)\n\t\t\t(header {"yes" if header else "no"})\n'
+            f'{st}\t\t)\n\t\t(separators\n\t\t\t(rows yes)\n\t\t\t(cols yes)\n{st}\t\t)\n'
+            f'\t\t(column_widths {" ".join(num(w) for w in widths)})\n\t\t(row_heights {" ".join(num(v) for v in heights)})\n'
+            '\t\t(cells\n' + ''.join(cells) + '\t\t)\n\t)\n')
+
+
+def c_table(b, a, f, rows, h, S):
+    pp = sorted((p for p, _n in rows), key=lambda p: p['y'])
+    names = {id(p): n for p, n in rows}
+    xs, ys = [p['x'] for p in pp], [p['y'] for p in pp]
+    if len(pp) > 1 and max(xs) - min(xs) > max(ys) - min(ys):
+        print(f"pinlabels {f.ref} --table: the pin row is horizontal; a table is emitted upright only "
+              "(KiCad 10.99 skews a rotated table). Use plain `pinlabels`."); return 1
+    pitch = (ys[-1] - ys[0]) / (len(ys) - 1) if len(ys) > 1 else 1.6 * h + 2 * M
+    if any(abs(v - u - pitch) > 0.02 for u, v in zip(ys, ys[1:])):
+        print(f"pinlabels {f.ref} --table: pins not evenly pitched (" + ' '.join(f"{v - u:.2f}" for u, v in zip(ys, ys[1:]))
+              + " mm): name a subset (NAME args) or use plain `pinlabels`"); return 1
+    if pitch < h + 2 * M:
+        print(f"pinlabels {f.ref} --table: {pitch:.2f} mm pitch is under the {h + 2 * M:.2f} mm a {h:g} mm row needs; "
+              "lower --size"); return 1
+    t = max(T, round(0.15 * h, 3))
+    title = a.table
+    wd = max(0.9 * h * len(names[id(p)]) for p in pp) + 2 * M
+    wt = 0.9 * h * len(title) + 2 * M if title else 0
+    tcol = bool(title) and a.title_col
+    if title and not tcol:
+        wd = max(wd, wt)
+    width = wd + (wt if tcol else 0)
+    top = ys[0] - pitch / 2 - (pitch if title and not tcol else 0)
+    bot = ys[-1] + pitch / 2
+    bx = [pad_box(p) for p in pp]
+    best, blk = None, set()
+    lim = a.radius if a.radius != 5.0 else 3.0
+    for d in (-1, 1):
+        edge = min(q[0] for q in bx) if d < 0 else max(q[2] for q in bx)
+        for k in range(int(lim / 0.05)):
+            off = S.clr + t / 2 + 0.05 + 0.05 * k
+            x0 = edge + off if d > 0 else edge - off - width
+            box = (x0 - t / 2, top - t / 2, x0 + width + t / 2, bot + t / 2)
+            if S.edge_gap(box) >= S.clr + 0.1 and not S.hits(box, f.back):
+                if best is None or off < best[0]:
+                    best = (off, d, x0)
+                break
+            if k in (0, int(lim / 0.05) - 1):
+                blk |= why(S, box, f.back)
+    print(f"pinlabels {f.ref} --table: " + ' '.join(f"{p['num']}={names[id(p)]}" for p in pp))
+    if not best:
+        print(f"  no clear spot for the {width:.2f} x {bot - top:.2f} mm table within {lim:g} mm on either side; "
+              f"blocked by {' '.join(sorted(blk)) or '?'}"); return 2
+    off, d, x0 = best
+    far_left = tcol and d < 0                         # the title column sits away from the pads
+    xd = x0 + (wt if far_left else 0)
+    widths = ([wt, wd] if far_left else [wd, wt]) if tcol else [wd]
+    cells, heights, y = [], [], top
+    if title and not tcol:
+        cells.append(table_cell(title, (x0, y, x0 + wd, y + pitch), (1, 1), f.back, h, t, True))
+        heights.append(pitch)
+        y += pitch
+    for i, p in enumerate(pp):
+        dc = table_cell(names[id(p)], (xd, y, xd + wd, y + pitch), (1, 1), f.back, h, t, False)
+        if tcol:
+            tb = (x0, y, x0 + wt, y + pitch) if far_left else (xd + wd, y, xd + wd + wt, y + pitch)
+            tc = table_cell(title, (tb[0], ys[0] - pitch / 2, tb[2], bot), (1, len(pp)), f.back, h, t, True) if i == 0 \
+                else table_cell('', tb, (0, 0), f.back, h, t, False)
+            cells += [tc, dc] if far_left else [dc, tc]
+        else:
+            cells.append(dc)
+        heights.append(pitch)
+        y += pitch
+    print(f"  {'B' if f.back else 'F'} side, {'-' if d < 0 else '+'}x of the pads at {off:.2f} mm: {width:.2f} x "
+          f"{bot - top:.2f} mm, {len(pp)} row(s) on the {pitch:.2f} mm pitch" + (f", title '{title}'" if title else '')
+          + (' as a column' if tcol else ''))
+    if not a.out:
+        print("(dry run: -o OUT writes it; then `silk` on OUT)"); return 0
+    tx = PcbText(b.path)
+    tx.add(table_sexp(cells, widths, heights, f.back, t, bool(title) and not tcol))
+    tx.save(a.out)
+    print(f"wrote 1 table ({len(cells)} cells) -> {a.out}; check: kpcb.py {a.out} silk")
     return 0

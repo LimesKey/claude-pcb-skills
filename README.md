@@ -48,7 +48,7 @@ Things to ask once installed:
 
 ## Requirements
 
-- **Python 3.12 or newer** (CI runs 3.12 and 3.14 on every push).
+- **Python 3.12 or newer** (CI runs 3.12 and 3.15 on every push).
 - **KiCad 10 `kicad-cli`** for DRC/ERC, multi-root netlists, plots and board
   height. Found on `PATH`, else in the macOS app bundle or a Windows install;
   `$KICAD_CLI` overrides. Files saved by a 10.99 nightly need
@@ -178,7 +178,7 @@ python3 skills/kicad-review/tests/selftest.py -k 'kpcb edit'   # a subset, ~1 s
 ```
 
 Exit 0 means everything passed, 1 a test failed, 2 only the goldens moved.
-GitHub Actions runs `tools/verify.sh` (no goldens) on Python 3.12 and 3.14 for
+GitHub Actions runs `tools/verify.sh` (no goldens) on Python 3.12 and 3.15 for
 every push and pull request; Dependabot keeps the pinned actions current.
 The goldens run HEAD's scripts and the working tree's on the same frozen copy of
 the project and diff the outputs: a pure refactor must read N/N unchanged.

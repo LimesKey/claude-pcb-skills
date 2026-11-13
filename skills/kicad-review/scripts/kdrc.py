@@ -250,7 +250,11 @@ def _against(d, a):
     """keep only what the --baseline report lacks (a multiset on type + descriptions,
     positions ignored), and say what changed"""
     from collections import Counter
-    old = json.load(open(a.baseline))
+    with open(a.baseline) as fh:
+        old = json.load(fh)
+    if not isinstance(old, dict):               # kdrc's own --json rows carry no items to match on
+        sys.exit(f"--baseline {a.baseline}: that is kdrc --json output (finding rows), not a DRC report. "
+                 "Record the old board with `--report OLD.json` (kicad-cli's raw JSON) and pass that")
     out, changed = {}, []
     for key in ('violations', 'unconnected_items'):
         have = Counter(_vkey(v) for v in old.get(key, []))
@@ -547,6 +551,13 @@ def _selftest():
     r2 = _against({'violations': [tw(0.7)]}, a2)
     checks.append((not r2['violations'] and '1 changed' in a2.base_note and '0.5 < 1 mm -> actual 0.7' in a2.base_note,
                    "baseline: a widened under-floor track (same uuid) read as new + gone, not changed"))
+    json.dump([{'rule': 'DRC:CLEARANCE', 'severity': 'ERROR'}], open(a2.baseline, 'w'))
+    try:
+        _against({'violations': []}, a2)
+        refused = False
+    except SystemExit as e:
+        refused = '--report OLD.json' in str(e)
+    checks.append((refused, "baseline: kdrc's own --json rows crashed _against instead of naming --report"))
     checks.append((_vkey(tx('v2 2026-10-18')) == _vkey(tx('v2 2026-10-19'))
                    and _ikey({'description': 'Track [A] on F.Cu', 'uuid': 'x'}) == 'Track [A] on F.Cu',
                    "baseline: a text item's changed text made it a new violation (key it by uuid)"))
@@ -833,7 +844,7 @@ def main():
                     help='save the refilled board (scratch copies only: refused for a git-tracked file)')
     ap.add_argument('--report', default='', help='write the raw kicad-cli DRC JSON here (a later --baseline)')
     ap.add_argument('--baseline', default='',
-                    help='an earlier --report: list only violations/unconnected items it does not have')
+                    help='an earlier --report file (not --json output): list only violations/unconnected items it does not have')
     ap.add_argument('--rules', action='store_true', help='print the rule legend')
     ap.add_argument('--json', action='store_true')
     ap.add_argument('--selftest', action='store_true',

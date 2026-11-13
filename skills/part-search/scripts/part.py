@@ -97,7 +97,7 @@ free, so re-querying the same part in a later chat costs nothing.
 import sys, os, re, json, glob, argparse, subprocess, urllib.parse, signal
 from part_core import (best_datasheet, buy_qty, CACHE, cfg, conv, dk_search, dk_token, dmoney,
                        dmoney1, fx_note, fx_rates, http, jlc_annotate, JLC_FACETS, jlc_facets,
-                       jlc_detail, JLC_SEARCH, jlc_search, LCSC_DETAIL, lcsc_search, LCSC_SEARCH,
+                       jlc_detail, JLC_SEARCH, jlc_search, LCSC_DETAIL, lcsc_search, LCSC_SEARCH, lcsc_third,
                        load_knet, money, mouser_search, _mouser_norm, _num, price_at, resolve, trunc,
                        verify_pdf)
 from part_value import FLAG_ATTRS
@@ -148,6 +148,8 @@ def show_full(r, a):
           f"({extra})" if extra else '')
     print(f"  moq       : {r.get('moq')}   multiple: {r.get('multiple')}   "
           f"reel: {r.get('reel_qty') or '?'}")
+    if r.get('source') == 'LCSC':
+        _show_third(r, a)
     for k in ('lifecycle', 'rohs', 'eccn'):
         if r.get(k) not in (None, ''):
             print(f"  {k:<10}: {r[k]}")
@@ -255,6 +257,19 @@ def c_selftest(a):
                            'ProductAttributes': [{'AttributeName': 'Package / Case', 'AttributeValue': 'SOT-583'}]})
         assert (mp['stock'], mp['ladder'], mp['package'], _num('1.234,50 \u20ac')) == \
             (12543, [(1, 1.23), (1000, 1000.5)], 'SOT-583', 1234.5), 'mouser normaliser'
+        import part_core
+        real = part_core.cached                      # the marketplace parser on a recorded answer
+        part_core.cached = lambda *_a, **_k: {'productList': [{   # noqa: E731
+            'vendorCode': 'G1', 'productSource': 'waldom', 'stockNumber': 3000, 'minBuyNumber': 1, 'split': 1,
+            'deliveryTimeWayDays': [9, 11], 'productModel': 'X 25+', 'batchNumber': '25+',
+            'productPriceList': [{'ladder': 20, 'usdPrice': 8.7}, {'ladder': 1, 'usdPrice': 9.07}]}]}
+        try:
+            o = part_core.lcsc_third('c1')
+            note = part_core.third_note({'source': 'LCSC', 'sku': 'C1', 'stock': 0}, 10)
+        finally:
+            part_core.cached = real
+        assert (o[0]['seller'], o[0]['stock'], o[0]['lead'], o[0]['ladder']) == ('G1', 3000, (9, 11), [(1, 9.07), (20, 8.7)]) \
+            and note.startswith('marketplace: 1 offer(s), 3,000 in stock, from US$9.07'), 'LCSC marketplace parser'
         import kcap
         assert kcap._partsearch(), 'kcap cannot import its part_core/part_value calls'
         from part_pick import LIGHT_LED
@@ -278,7 +293,7 @@ def c_selftest(a):
         nd = len(sk.split('description: ', 1)[1].split('\n---', 1)[0].strip())
         assert nd <= 1024, f'SKILL.md description {nd} chars > 1024'
         off = (f"OK    pick/alt parsing {_pick_selftest()}, fpcheck matcher {_fpcheck_selftest()}, "
-               f"ds names 6/6, wmsc v2 fallback, mouser normaliser, kcap bridge, lighting-LED note, broken fpcheck.json, "
+               f"ds names 6/6, wmsc v2 fallback, mouser normaliser, LCSC marketplace, kcap bridge, lighting-LED note, broken fpcheck.json, "
                f"description {nd} chars")
     except AssertionError as e:
         off = f"FAIL  {e}"
@@ -371,6 +386,23 @@ def c_search(a):
               + ("\nJLC rows show the JLC assembly-catalog price; `show` gives LCSC retail"
                  if any(r['source'] == 'JLC' for r in rows) else ''))
 
+def _show_third(r, a):
+    """the page's "Other Suppliers on LCSC": a separate source, never LCSC stock"""
+    offs = lcsc_third(r['sku'], a.fresh)
+    if not offs:
+        return
+    print(f"  marketplace: {len(offs)} offer(s) from other suppliers on LCSC - NOT LCSC stock: the seller's "
+          "authenticity, date code and lead time")
+    for o in sorted(offs, key=lambda o: (o['ladder'][0][1] if o['ladder'] else 9e9)):
+        q = buy_qty(max(a.qty or 1, o['moq'] or 1), o['moq'], o['multiple'])
+        up, own = price_at(o['ladder'], q), price_at(r.get('ladder') or [], q)
+        ratio = f"{up / own:.2f}x LCSC's own" if up and own else "LCSC has no price at that qty"
+        lead = f"{o['lead'][0]}-{o['lead'][-1]} d" if o['lead'] else '? d'
+        print(f"      {o['seller'] or '?':<8} stock {o['stock'] or 0:>8,}  moq {o['moq'] or '?':>5}  lead {lead:<9} "
+              f"{q}+ {dmoney1(up, 'USD', a) if up else '?':>9} ({ratio})"
+              + ("  FAR UNDER: grey-market risk, check the date code / suffix" if up and own and up / own < 0.5 else '')
+              + (f"  [{trunc(o['batch'], 16)}]" if o['batch'] else ''))
+
 def c_show(a):
     recs, bad = [], False
     for spec in a.args:
@@ -455,7 +487,7 @@ def _ds_name(r):
             ti, n = m.group(1).upper(), len(m.group(1))
             if not r.get('mpn') or base.startswith(ti):
                 return ti
-            c = len(os.path.commonprefix([ti, base]))
+            c = next((i for i, (x, y) in enumerate(zip(ti, base)) if x != y), min(len(ti), len(base)))
             # a sibling differs only in its last 1-2 digits (TPS2294[45], LM614[46]0);
             # a family name (TLV743P for TLV74333P) keeps the whole MPN
             return base[:n] if c >= n - 2 and ti[c:].isdigit() and base[c:n].isdigit() else base

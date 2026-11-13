@@ -290,7 +290,56 @@ def census_rows(b, skip, box=None):
         if not inb(at):
             continue
         rows.append(('detour', net, ly, at, f"{L:.1f} vs MST {M:.1f} mm, {V} via", 'reroute ' + unesc_disp(net.split('/')[-1]), None))
+    for r in cleanup_rows(b, ix, skip):
+        if inb(r[3]):
+            c['cleanup'] += 1
+            rows.append(r)
     return c, rows
+
+
+def cleanup_rows(b, ix, skip):
+    """what KiCad's Tools -> Cleanup Tracks & Vias (its default options) would change, predicted:
+    it cannot run headless (10.99 `api-server` answers RunAction with "not available in
+    headless mode"; stable's SWIG pcbnew has no cleaner). A collinear joint of two same-width
+    segments with nothing else there is merged (the vertex goes), a segment wholly inside one
+    same-net pad is deleted (why an end pushed to the pad centre comes back off: land it on the
+    anchor in line with the pad), a duplicate segment or via and a via on a same-net
+    through-hole pad are deleted. Dangling copper is `deadend`, 0-length `stub`."""
+    out, seen, vs = [], set(), {}
+    lab = {id(p): f"{f.ref}.{p['num']}" for f in b.fps.values() for p in f.pads}
+    for (net, ly, n), lst in ix.ends.items():
+        if net in skip or len(lst) != 2:
+            continue
+        t1, t2 = b.tracks[lst[0]], b.tracks[lst[1]]
+        if is_arc(t1) or is_arc(t2) or abs(t1['w'] - t2['w']) > 1e-6 or min(t1['len'], t2['len']) < 1e-4:
+            continue
+        o1, o2 = (t1['b'] if q(t1['a']) == n else t1['a']), (t2['b'] if q(t2['a']) == n else t2['a'])
+        if turn(ang(o1, n), ang(n, o2)) > 0.05 or ix.on_pad(net, ly, n) or ix.on_via(net, ly, n) or \
+                any(i not in lst and pt_seg_dist(n, b.tracks[i]['a'], b.tracks[i]['b']) <= b.tracks[i]['w'] / 2
+                    for i in ix.trk[(net, ly)]):
+            continue
+        out.append(('cleanup', net, ly, n, 'collinear joint', 'KiCad merges the two segments', None))
+    for i, t in enumerate(b.tracks):
+        if not t['net'] or t['net'] in skip or is_arc(t):
+            continue
+        k = (t['net'], t['layer'], round(t['w'], 4), *sorted((q(t['a']), q(t['b']))))
+        if k in seen:
+            out.append(('cleanup', t['net'], t['layer'], t['mid'], f"duplicate {t['len']:.2f} mm segment", 'KiCad deletes one', None))
+        seen.add(k)
+        p = next((p for p in ix.pads[t['net']] if on_layer(p, t['layer'])
+                  and pad_dist(p, t['a'], True) <= -t['w'] / 2 + 1e-4 and pad_dist(p, t['b'], True) <= -t['w'] / 2 + 1e-4), None)
+        if p is not None and t['len'] >= 1e-4:
+            out.append(('cleanup', t['net'], t['layer'], t['mid'], f"{t['len']:.2f} mm wholly inside {lab[id(p)]}",
+                        'KiCad deletes it: end on the pad anchor instead', None))
+    for v in b.vias:
+        k = (v['net'], round(v['x'], 4), round(v['y'], 4))
+        if k in vs:
+            out.append(('cleanup', v['net'], '-', (v['x'], v['y']), 'duplicate via', 'KiCad deletes one', None))
+        vs[k] = v
+        p = next((p for p in ix.pads[v['net']] if p.get('kind') == 'thru_hole' and pad_dist(p, (v['x'], v['y'])) <= 0), None)
+        if p is not None:
+            out.append(('cleanup', v['net'], '-', (v['x'], v['y']), f"via on through-hole {lab[id(p)]}", 'KiCad deletes it', None))
+    return out
 
 
 def zone_rows(b):
@@ -312,7 +361,7 @@ path, and CHG_VBUS 71% inside BAT_VBUS still lost 2.7 mm2 of fill, 2026-10-28). 
         short = sum(math.dist(P[i - 1], P[i]) < 0.3 for i in range(len(P)))
         if len(P) > 24 or short >= 4:
             out.append(('zonepts', z, f"{nm(z)} {len(P)} corners, {short} edge(s) < 0.3 mm",
-                        'redraw: few corners on 0/45/90 (or delete and `fatten NET --amps A`)'))
+                        'redraw: few corners on 0/45/90 (`zoneshape UUID` proposes one; or delete and `fatten NET --amps A`)'))
     idx, bbs = {z.uuid: PolyIndex(z.outline) for z in zs}, {z.uuid: bbox(z.outline) for z in zs}
     def frac(z, o):                                  # share of z's area inside o, on a 0.25 mm sample grid
         bz = bbs[z.uuid]
@@ -338,7 +387,7 @@ path, and CHG_VBUS 71% inside BAT_VBUS still lost 2.7 mm2 of fill, 2026-10-28). 
 
 
 KINDS = ('acute', '90', 'off45', 'neck', 'stub', 'pad', 'overlap', 'twin', 'jog', 'detour', 'inpour', 'inpourpwr', 'deadend',
-         'zonepts', 'zonedup')
+         'zonepts', 'zonedup', 'cleanup')
 
 
 def c_tracks(b, a):
@@ -351,7 +400,8 @@ def c_tracks(b, a):
     label = {'acute': 'corners, acute', '90': 'corners 46-90 deg', 'off45': 'off-45 segments',
              'neck': 'width steps mid-run', 'stub': 'segments < 0.05 mm', 'pad': 'ends at a pad edge',
              'overlap': 'joined only through pad', 'twin': 'twin runs into one pad', 'jog': 'lane jogs 0.05-1 mm', 'detour': 'detours (> 1.5x MST)', 'inpour': 'plane tracks inside fill', 'inpourpwr': 'other tracks inside fill',
-             'deadend': 'dead branches (no pad)', 'zonepts': 'zones hard to edit', 'zonedup': 'zones over own-net zone'}
+             'deadend': 'dead branches (no pad)', 'zonepts': 'zones hard to edit', 'zonedup': 'zones over own-net zone',
+             'cleanup': 'KiCad cleanup would change'}
     for k in KINDS:
         print(f"  {label[k]:<22} {c[k]:>4} visible" + (f"  ({c['hidden ' + k]} hidden under same-net copper)"
                                                       if 'hidden ' + k in c else '')

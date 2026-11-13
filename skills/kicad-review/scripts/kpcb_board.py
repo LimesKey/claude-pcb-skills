@@ -542,6 +542,9 @@ class Board:
             elif self._gpts(g, g[0]):
                 self.silk.append((val(g, 'layer'), bbox(self._gpts(g, g[0]))))
                 self.silkart.append(self._art(g))
+        for t in kids(root, 'table'):
+            if val(t, 'layer').endswith('.SilkS'):
+                self._table(t)
         for node in kids(root, 'footprint'):
             f = self._footprint(node)
             self.fps[f.ref] = f
@@ -890,6 +893,58 @@ class Board:
             r = math.hypot(e[0] - c[0], e[1] - c[1])
             return [(c[0] - r, c[1] - r), (c[0] + r, c[1] + r)]
         return []
+
+    def _table(self, t):
+        """a silk (table ...): its bbox in .silk, its drawn border/separator lines as board art,
+        each visible cell in .silktexts (kind 'table'; a knockout cell is its filled box, a cell
+        covered by a merged one, span 0, is skipped). Cells are upright: KiCad 10.99 skews a
+        rotated table, so none is drawn here."""
+        ly = val(t, 'layer')
+        cells = [c for c in kids(kid(t, 'cells') or [], 'table_cell')
+                 if '0' not in (kid(c, 'span') or ['span', '1', '1'])[1:3]]
+        if not cells:
+            return
+        boxes = [bbox([self._xy(c, 'start'), self._xy(c, 'end')]) for c in cells]
+        tb = bbox([q for bb in boxes for q in (bb[:2], bb[2:])])
+        bd, sp = kid(t, 'border') or [], kid(t, 'separators') or []
+        wd = lambda n: _f((kid(kid(n, 'stroke') or [], 'width') or ['', '0.1'])[1], 0.1)    # noqa: E731
+        bw, sw, R = wd(bd), wd(sp), lambda v: round(v, 4)                                   # noqa: E731
+        segs = {}
+        if val(bd, 'external') == 'yes':
+            x0, y0, x1, y1 = tb
+            for a, c in (((x0, y0), (x1, y0)), ((x1, y0), (x1, y1)), ((x1, y1), (x0, y1)), ((x0, y1), (x0, y0))):
+                segs[(a, c)] = bw
+        for x0, y0, x1, y1 in boxes:            # inner edges: a cell's right and bottom side
+            if val(sp, 'cols') == 'yes' and R(x1) < R(tb[2]):
+                segs.setdefault(((x1, y0), (x1, y1)), sw)
+            if R(y1) < R(tb[3]) and (val(sp, 'rows') == 'yes' or val(bd, 'header') == 'yes' and R(y0) == R(tb[1])):
+                segs.setdefault(((x0, y1), (x1, y1)), bw if R(y0) == R(tb[1]) and val(bd, 'header') == 'yes' else sw)
+        self.silk.append((ly, tb))
+        w = max(segs.values(), default=0)
+        self.silkart.append((ly, grow(tb, w / 2), [(a, c, ww) for (a, c), ww in segs.items()]))
+        for c, (x0, y0, x1, y1) in zip(cells, boxes):
+            txt, ko = str(c[1]), val(c, 'knockout') == 'yes'
+            if not txt.strip() and not ko:
+                continue
+            eff = kid(c, 'effects') or []
+            fnt = kid(eff, 'font') or []
+            sz, th = kid(fnt, 'size') or ['size', '1', '1'], kid(fnt, 'thickness')
+            js = set((kid(eff, 'justify') or [])[1:])
+            ml, mt, mr, mb = ([_f(v) for v in (kid(c, 'margins') or [])[1:5]] + [0.0] * 4)[:4]
+            h = 'left' if 'left' in js else 'right' if 'right' in js else ''
+            if 'mirror' in js:                  # a mirrored left-justified text hugs the right edge
+                h = {'left': 'right', 'right': 'left'}.get(h, h)
+            ax = x0 + ml if h == 'left' else x1 - mr if h == 'right' else (x0 + x1) / 2
+            ay = y0 + mt if 'top' in js else y1 - mb if 'bottom' in js else (y0 + y1) / 2
+            if ko:                              # filled to the cell, shy of its own border lines
+                bx = grow((x0, y0, x1, y1), -(w / 2 + 0.01))
+                parts = [bx]
+            else:
+                bx, parts = text_parts(ax, ay, 0.0, txt, c)
+            self.silktexts.append({'kind': 'table', 'text': txt, 'layer': ly, 'x': ax, 'y': ay, 'ang': 0.0,
+                                   'h': _f(sz[1], 1.0), 'thick': _f(th[1], 0.15) if th else 0.15, 'hidden': False,
+                                   'mirror': 'mirror' in js, 'knockout': ko, 'uuid': val(c, 'uuid'), 'box': bx,
+                                   'parts': parts, 'ttf': kid(fnt, 'face') is not None, 'cell': (x0, y0, x1, y1)})
 
     @classmethod
     def _art(cls, g):
