@@ -6,7 +6,7 @@ data model, and the finding formatter (print_findings / suppressed) used by
 knet.py, kpcb.py, kdrc.py, ksch.py and part.py. It has NO command-line surface
 of its own and imports nothing from the tools - the dependency only ever points
 tools -> kcommon, never back. Edit a parser or a check-formatter here once and
-every tool sees it; guard the change with references/selftest.py.
+every tool sees it; guard the change with tests/selftest.py.
 """
 import sys, os, re, glob, json, math, shutil, hashlib, marshal, subprocess, time
 from collections import Counter, defaultdict

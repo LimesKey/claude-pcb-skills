@@ -6,7 +6,7 @@ work, fix them on the way. Append newest at the bottom of Open. When one lands,
 cut it from here and add it, with a `Done:` line (what changed, date), to the
 **top** of [CHANGELOG.md](CHANGELOG.md). Fixes made on the way get an entry too.
 
-While iterating on one fix, `python3 skills/kicad-review/references/selftest.py -k LABEL`
+While iterating on one fix, `python3 skills/kicad-review/tests/selftest.py -k LABEL`
 runs only the matching cases plus the cases that write their inputs (~1 s; `--list`
 names them). Verify any skill change at the end with one command (all must pass):
 

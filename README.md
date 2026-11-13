@@ -153,8 +153,8 @@ skills/
   kicad-review/
     SKILL.md           router: which tool answers which question
     scripts/           the tools; kcommon.py is the shared parser and models
-    references/        one manual per tool, recipes.md, gotchas.md,
-                       selftest.py and its fixtures
+    references/        one manual per tool, recipes.md, gotchas.md
+    tests/             selftest.py and its fixtures
   part-search/
     SKILL.md
     scripts/           part.py (+ part_*.py modules), kcap.py
@@ -173,7 +173,7 @@ CLAUDE.md              rules for working on the skills
 tools/verify.sh                         # both selftests, pyflakes, router lint (~30 s)
 tools/verify.sh HEAD ~/my-board         # + goldens on a real project
 tools/verify.sh HEAD ~/my-board x.json  # + that board's own golden commands
-python3 skills/kicad-review/references/selftest.py -k 'kpcb edit'   # a subset, ~1 s
+python3 skills/kicad-review/tests/selftest.py -k 'kpcb edit'   # a subset, ~1 s
 ```
 
 Exit 0 means everything passed, 1 a test failed, 2 only the goldens moved.

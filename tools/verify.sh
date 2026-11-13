@@ -26,14 +26,14 @@ REV=${1:-HEAD} PROJ=${2:-} EXTRA=${3:-}
 fail=0 moved=0
 
 echo "== kicad-review selftest"
-python3 "$ROOT/$K/references/selftest.py" | grep -v '^ok ' || fail=1
+python3 "$ROOT/$K/tests/selftest.py" | grep -v '^ok ' || fail=1
 echo "== part-search offline selftest"
 python3 "$ROOT/$P/scripts/part.py" selftest --offline || fail=1
 echo "== pyflakes"
 if command -v uvx >/dev/null; then PF=(uvx pyflakes)
 elif python3 -m pyflakes --version >/dev/null 2>&1; then PF=(python3 -m pyflakes)
 else PF=(); echo "skipped: neither uvx nor python3 -m pyflakes"; fi
-[ ${#PF[@]} = 0 ] || { "${PF[@]}" "$ROOT"/skills/*/scripts/*.py "$ROOT/$K/references/selftest.py" && echo clean; } || fail=1
+[ ${#PF[@]} = 0 ] || { "${PF[@]}" "$ROOT"/skills/*/scripts/*.py "$ROOT/$K/tests/selftest.py" && echo clean; } || fail=1
 
 if [ -n "$PROJ" ]; then
     PROJ=$(cd "$PROJ" && pwd) || exit 1
@@ -52,7 +52,8 @@ if [ -n "$PROJ" ]; then
         else case $x in *.kicad_*|*.net|*.json|*lib-table) cp -p "$x" "$F/";; esac; fi
     done
     for T in "$H" "$ROOT"; do               # REV records, the working tree diffs
-        (cd "$F" && python3 "$T/$K/references/selftest.py" --golden g "$pcb" "$net" ${EXTRA:+"$EXTRA"} \
+        ST=$T/$K/tests/selftest.py; [ -f "$ST" ] || ST=$T/$K/references/selftest.py   # REV before the move
+        (cd "$F" && python3 "$ST" --golden g "$pcb" "$net" ${EXTRA:+"$EXTRA"} \
                     | grep -v '^same') || moved=1
         (cd "$F" && python3 "$T/$P/scripts/part.py" selftest --golden pg "$net" \
                     | grep -v '^same') || moved=1

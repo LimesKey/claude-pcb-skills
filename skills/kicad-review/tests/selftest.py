@@ -5,7 +5,7 @@ Executes every check the recipes.md "Self-test" section documents and asserts on
 its exit code and key output markers, so a tool edit or a refactor is verified
 with ONE command instead of eyeballing counts by hand:
 
-    python3 references/selftest.py         # from the skill root
+    python3 tests/selftest.py              # from the skill root
     ./selftest.py                          # from references/ (it finds itself)
 
 Exit 0 = all pass, 1 = something regressed. It lives beside the fixtures it uses
@@ -1505,7 +1505,7 @@ def router_lint():
     t = open(os.path.join(SK, 'SKILL.md')).read()
     desc = ' '.join(t.split('\n---', 1)[0].split('description: >-', 1)[1].split())
     bad = [f'description {len(desc)} chars > 1024'] if len(desc) > 1024 else []
-    docs = [os.path.join(SK, 'SKILL.md')] + sorted(glob.glob(os.path.join(HERE, '*.md')))
+    docs = [os.path.join(SK, 'SKILL.md')] + sorted(glob.glob(os.path.join(SK, 'references', '*.md')))
     for d in docs:
         bad += [f'{os.path.basename(d)} links {ln}' for ln in re.findall(r'\]\(([^)#\s]+)', open(d).read())
                 if '://' not in ln and not os.path.exists(os.path.join(os.path.dirname(d), ln))]

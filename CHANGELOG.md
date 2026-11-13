@@ -3,6 +3,10 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in [BACKLOG.md](BACKLOG.md).
 
+- [x] kicad-review - selftest.py and its fixtures moved from `references/` to `tests/`,
+      so `references/` holds only the manuals the router links. Paths in recipes.md,
+      README, BACKLOG and verify.sh follow; verify.sh still baselines against a REV
+      from before the move. 288/288, goldens 38/38 + 18/18 unchanged. 2026-11-12.
 - [x] part-search brands.md - covers resistors and capacitors now, not only MLCC:
       20 makers plus 8 part-researched ones, each scored 2Q+D+E (quality, checkable
       data, conduct) with sourced, dated facts (cartel pleas and fines, civil

@@ -232,17 +232,17 @@ and MPN-named footprints clear automatically; divergent nomenclature -> REVIEW.
 # Self-test after editing a tool
 
 ```bash
-python3 references/selftest.py              # every check, asserts, exit 0 = all pass (~30 s)
-python3 references/selftest.py -k 'kpcb net' # while iterating: matching cases + their inputs (~1 s)
-python3 references/selftest.py --list       # every case label
+python3 tests/selftest.py              # every check, asserts, exit 0 = all pass (~30 s)
+python3 tests/selftest.py -k 'kpcb net' # while iterating: matching cases + their inputs (~1 s)
+python3 tests/selftest.py --list       # every case label
 ```
 
 Before a refactor, record the real board's outputs, then check after - a pure
 refactor must be byte-identical (fixtures only prove each rule still fires):
 
 ```bash
-python3 references/selftest.py --golden /tmp/golden BOARD.kicad_pcb BOARD.net   # 1st run records
-python3 references/selftest.py --golden /tmp/golden BOARD.kicad_pcb BOARD.net   # later: diffs, exit 1 on change
+python3 tests/selftest.py --golden /tmp/golden BOARD.kicad_pcb BOARD.net   # 1st run records
+python3 tests/selftest.py --golden /tmp/golden BOARD.kicad_pcb BOARD.net   # later: diffs, exit 1 on change
 uvx pyflakes scripts/*.py        # must print nothing (exit 0)
 ```
 
@@ -256,7 +256,7 @@ to find the fixture builder it already uses (`*_board`, `*_net`, `*_project`: on
 small file in the temp dir per behaviour, its docstring or comment says what it
 carries), add a fault to it or write a sibling builder beside it, and append one
 `(label, argv, exit, substrings)` line next to that command's other cases. Give
-the label the command's name so `-k` finds it. Static fixtures beside this file:
+the label the command's name so `-k` finds it. Static fixtures beside it in `tests/`:
 `selftest.kicad_pcb` (+ `selftest_nightly.kicad_pcb`, the same board in 10.99
 `(transform ...)` form, must give identical `check`), `selftest.net`,
 `selftest_amp2`/`selftest_cross.kicad_pcb` (ampacity), `selftest_repeat/` (one sheet
@@ -279,5 +279,5 @@ dead - kpcb's thresholds are loose enough that a clean board reports nothing, wh
 looks identical to a broken check.
 
 **After editing any tool, `kcommon.py`, SKILL.md or a reference file**, run
-`python3 references/selftest.py` - green means the documented counts still hold.
+`python3 tests/selftest.py` - green means the documented counts still hold.
 They are the only thing that distinguishes a working rule from a silently dead one.
