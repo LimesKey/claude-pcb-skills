@@ -3,7 +3,7 @@
   "description": "Claude Code skills for KiCad PCB design review and electronic part selection.",
   "owner": {
     "name": "LimesKey",
-    "url": "https://github.com/LimesKey"
+    "url": "https://github.com/LimesKey/claude-pcb-skills"
   },
   "plugins": [
     {
