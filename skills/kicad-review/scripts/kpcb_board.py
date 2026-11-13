@@ -139,11 +139,14 @@ def ray_hit(p, d, segs):
 
 def pad_box(p):
     """a pad's copper as an axis-aligned box in board mm (anchor + custom primitives)"""
-    t = math.radians(p['prot'])
-    hx = abs(p['sx'] / 2 * math.cos(t)) + abs(p['sy'] / 2 * math.sin(t))
-    hy = abs(p['sx'] / 2 * math.sin(t)) + abs(p['sy'] / 2 * math.cos(t))
-    pts = [(p['x'] - hx, p['y'] - hy), (p['x'] + hx, p['y'] + hy)]
-    pts += [xf(u, v, p['x'], p['y'], p['prot']) for poly in p['prims'] for u, v in poly]
+    x, y, rot, sx, sy = p['x'], p['y'], p['prot'], p['sx'] / 2, p['sy'] / 2
+    if rot:                                   # every Grid/Exact window asks for every pad: no bbox()
+        t = math.radians(rot)
+        c, s = abs(math.cos(t)), abs(math.sin(t))
+        sx, sy = sx * c + sy * s, sx * s + sy * c
+    if not p['prims']:
+        return (x - sx, y - sy, x + sx, y + sy)
+    pts = [(x - sx, y - sy), (x + sx, y + sy)] + [xf(u, v, x, y, rot) for poly in p['prims'] for u, v in poly]
     return bbox(pts)
 
 def text_box(x, y, ang, txt, node, k=1.0):

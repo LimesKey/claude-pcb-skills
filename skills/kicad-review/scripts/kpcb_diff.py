@@ -105,7 +105,9 @@ def c_diff(b, a):
     box = tuple(float(v) for v in a.box.split(',')) if a.box else None
     try:
         o = Board(a.args[0])
-    except (FileNotFoundError, ValueError) as e:
+    except FileNotFoundError:
+        print(f"diff: no such board: {a.args[0]}"); return 3
+    except ValueError as e:
         print(f"diff: {e}"); return 3
     print(f"diff {a.args[0]} -> {b.path}" + (f"  (vias and tracks in {a.box} only)" if box else ''))
     lines, same = [], []

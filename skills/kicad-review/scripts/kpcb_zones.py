@@ -171,7 +171,14 @@ def _clearance_fn(b):
     (the unfused-pack rule). Given both item kinds ('track', 'pad', 'via') and the layer,
     the last matching .kicad_dru type rule replaces it, as KiCad's DRC does ("Pad to Track"
     0.1, track to track 0.127 outer / 0.1 inner), but never relaxes a raised netclass (RF)
-    or a pair rule. Warns once when no project rules sit beside the board."""
+    or a pair rule. Warns once when no project rules sit beside the board. Once per board:
+    every route/smooth window asks, and the rules files do not change under one Board."""
+    if '_clr' not in b.__dict__:
+        b._clr = _clearance_build(b)
+    return b._clr
+
+
+def _clearance_build(b):
     d = os.path.dirname(os.path.abspath(b.path))
     b.warn_rules()
     cls = {}

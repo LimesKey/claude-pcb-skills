@@ -13,7 +13,7 @@ from collections import Counter, defaultdict
 
 __all__ = [
     'CACHE', 'GND_RE', 'KNOWN_RAILS', 'Netlist', 'SchInfo', 'cache_prune', 'cache_put', 'eng', 'svg_png',
-    'fp_lib_dirs', 'fp_mod', 'kicad_env', 'expand_vars', 'fp_pads', 'doctor', 'has', 'kicad_cli', 'kicad_running', 'parse_args', 'sym_geometry',
+    'fp_lib_dirs', 'fp_mod', 'kicad_env', 'expand_vars', 'fp_pads', 'doctor', 'has', 'kicad_cli', 'kicad_running', 'parse_args', 'box_arg', 'sym_geometry',
     'kid', 'kids', 'load_sexp', 'natkey', 'netlist_warnings', 'parse_sexp', 'parse_value',
     'prefix', 'print_findings', 'rail_voltage', 'refrange', 'refresh_netlist', 'sch_files', 'smart_re',
     'suppressed', 'top_level_sheets', 'project_root', 'trunc', 'tvs_standoff', 'unesc_disp',
@@ -207,6 +207,25 @@ def refresh_netlist(path):
 
 _DASHVAL = re.compile(r'-[A-Z][A-Za-z0-9_+./{}~-]*$')
 _NUL = '\x00'
+
+def box_arg(multi=False):
+    """argparse type for X0,Y0,X1,Y1 (multi: joined by ;): checked once here, as each command
+    splits the string itself (`--box 1,2` was an IndexError deep in a census), corners sorted
+    (a reversed box read as an empty region)"""
+    import argparse as _argparse
+    def f(s):
+        out = []
+        for x in [x for x in (s.split(';') if multi else [s]) if x.strip()]:
+            try:
+                v = [float(t) for t in x.split(',')]
+            except ValueError:
+                v = []
+            if len(v) != 4:
+                raise _argparse.ArgumentTypeError(f"{x!r}: want X0,Y0,X1,Y1 in mm" + (', boxes joined by ;' if multi else ''))
+            out.append(','.join(f'{u:.6f}'.rstrip('0').rstrip('.')
+                                for u in (min(v[0], v[2]), min(v[1], v[3]), max(v[0], v[2]), max(v[1], v[3]))))
+        return ';'.join(out)
+    return f
 
 def parse_args(ap, argv=None, known=False):
     """ap.parse_args(), except a dash + uppercase token that is none of ap's options
@@ -436,19 +455,27 @@ def load_sexp(path, cache_over=100_000):
     """parse_sexp() of a file, memoised on disk (marshal) for files over
     `cache_over` bytes: the 12 MB board parses in 0.45 s and loads in 0.1 s.
     Keyed on path + size + mtime + Python version; writing one drops the same
-    file's older copies, so the cache holds one snapshot per file."""
+    file's older copies, so the cache holds one snapshot per file. A hit bumps
+    the snapshot's mtime: cache_prune drops the oldest first, and by write time
+    the 18 MB snapshots of one-off scratch copies evicted the board read daily.
+    A writer's hidden scratch board (`.reroute-*`) is read once: never cached."""
     st = os.stat(path)
     def parse():
         with open(path, encoding='utf-8', errors='replace') as f:
             return parse_sexp(f.read())
-    if st.st_size < cache_over:
+    if st.st_size < cache_over or os.path.basename(path).startswith('.'):
         return parse()
     tag = hashlib.sha1(os.path.abspath(path).encode()).hexdigest()[:12]
     ver = hashlib.sha1(f"{st.st_size}|{st.st_mtime_ns}|{sys.version}".encode()).hexdigest()[:12]
     name = f"sexp_{tag}_{ver}.marshal"
     try:
         with open(os.path.join(CACHE, name), 'rb') as f:
-            return marshal.loads(f.read())      # load(f) reads piecemeal: 5x slower
+            tree = marshal.loads(f.read())      # load(f) reads piecemeal: 5x slower
+        try:
+            os.utime(os.path.join(CACHE, name))
+        except OSError:
+            pass
+        return tree
     except (OSError, EOFError, ValueError, TypeError):
         pass
     tree = parse()

@@ -759,6 +759,9 @@ def main():
     a = parse_args(ap)
     if a.help:
         print(__doc__); return 0
+    if len(a.args) < {'grep': 1, 'near': 2}.get(a.cmd, 0):
+        use = next(ln.strip() for ln in __doc__.splitlines() if ln.split()[1:2] == [a.cmd])
+        print(f"usage: {use.split('  ')[0]}"); return 1
     return CMDS[a.cmd](a) or 0
 
 if __name__ == '__main__':

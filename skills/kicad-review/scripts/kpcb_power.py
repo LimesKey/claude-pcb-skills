@@ -386,8 +386,9 @@ def legal_spots(b, net, ax, ay, r0, r1, vsz, vdr, n, in_pad, fills, have, dead=f
     trk = [s for s in b.tracks if s['net'] == net and id(s) not in dead and inw(bbox([s['a'], s['b']]))]
     pds = [p for f in b.placed() for p in f.pads if p['net'] == net and inw(pad_box(p))]
     got, cells = [], []
-    for j in range(g.H):
-        for i in range(g.W):
+    i0, i1 = max(0, math.floor((ax - r1 - g.x0) / RES)), min(g.W, math.ceil((ax + r1 - g.x0) / RES) + 1)
+    for j in range(max(0, math.floor((ay - r1 - g.y0) / RES)), min(g.H, math.ceil((ay + r1 - g.y0) / RES) + 1)):
+        for i in range(i0, i1):                      # the r1 box, not the window (r1 + 1): 60% fewer cells
             x, y = g.x0 + i * RES, g.y0 + j * RES
             d = math.hypot(x - ax, y - ay)
             if r0 - 1e-9 <= d <= r1 and not g.vblk[j * g.W + i] and not g.vpour[j * g.W + i]:

@@ -463,7 +463,10 @@ def neighbours(nl, ref, pin):
     return frozenset(f"{x['ref']}.{x['pin']}" for x in nl.nets[n] if (x['ref'], x['pin']) != (ref, pin))
 
 def c_diff(nl, a):
-    old = Netlist(a.args[0], no_dnp=nl.no_dnp, refresh=False)
+    try:
+        old = Netlist(a.args[0], no_dnp=nl.no_dnp, refresh=False)
+    except FileNotFoundError:
+        print(f"no such netlist: {a.args[0]}", file=sys.stderr); return 3
     new = nl
     if old.date and new.date and old.date > new.date:
         print(f"note: the OLD side {old.path} ({old.date}) was exported after the NEW side "
@@ -610,6 +613,10 @@ def main():
     a = parse_args(ap)
     if a.help:
         print(__doc__); return
+    need = {'path': 2, 'net': 1, 'find': 1, 'walk': 1, 'diff': 1, 'divider': 1, 'comp': 1, 'pin': 1, 'around': 1}
+    if len(a.args) < need.get(a.cmd, 0):              # the docstring's line for it, not a traceback
+        use = next((ln.strip() for ln in __doc__.splitlines() if ln.split()[2:3] == [a.cmd] and 'knet.py' in ln), a.cmd)
+        print(f"usage: {use.split('  ')[0]}"); return 1
     # project config: knet.json next to the netlist. CLI flags win over config.
     cfg = {}
     try:

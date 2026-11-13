@@ -3,6 +3,33 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kpcb - the heavy writers were slow on the reference board (17 MB): smooth 46 s, widen 17 s, stitch
+      GND 15 s, reroute 230 s. Done: route's Grid rejects pads and tracks on raw coordinates before any bbox (exact:
+      a pad's rotated half-extent is <= sx/2 + sy/2), fill_rows assigns slices, astar keeps best cost in per-layer
+      arrays (came holds the same keys, so `g.seen` is unchanged), pad_box skips bbox() for plain pads; smooth's
+      Clear samples each segment once, checks a 0/90 segment by raster slices (its samples visit exactly the cells
+      between its ends), skips the contact test when the net has no own copper there, and paints its 0.5 mm allow
+      zone as one capsule per run of touching samples (a disk per 0.01 mm sample was 98% overlap; <= 25 nm
+      scallops); `_netclass` / `_clearance_fn` / `_hole_clr` read the project once per board (widen re-read the
+      .kicad_pro ~20k times); stitch scans the r1 box, not the window. smooth 46 -> 30 s, --all 54 -> 39, --jogs
+      21 -> 16, widen 17 -> 12, stitch GND 15 -> 9.7, --sparse 28 -> 21, reroute (3 nets) 55 -> 45; every output
+      byte-identical HEAD vs now (written boards too, fresh uuids aside), goldens 38/38 + 18/18. 2026-11-13.
+- [x] kicad-review/kcommon - `load_sexp`'s disk cache was a FIFO: prune drops the oldest write, and 18 MB snapshots
+      of one-off scratch copies (reroute's temp boards, test copies) filled the 512 MB cap and evicted the board read
+      daily. Done: a hit bumps the snapshot's mtime (LRU), and a writer's hidden scratch board (basename `.`*) is
+      never snapshotted. 2026-11-13.
+- [x] kicad-review/knet, kdoc - `knet FILE path|net|find|walk|diff|divider|comp|pin|around` and `kdoc grep|near`
+      without their arguments died with an IndexError (comp/pin/around printed nothing). Done: the docstring's usage
+      line, exit 1; `knet diff MISSING.net` says "no such netlist" (exit 3) instead of a traceback, and `kpcb diff
+      MISSING` says "no such board" instead of a bare path. 2026-11-13.
+- [x] kicad-review/kpcb, ksheet - `--box`, `--avoid`, `--keep` were split by each command itself: `--box 1,2` was
+      an IndexError deep in the `tracks` census, `--box abc` a ValueError, a reversed box an empty region. Done:
+      `kcommon.box_arg`, an argparse type checking 4 numbers per box (`;`-joined for --avoid/--keep) and sorting
+      the corners. 2026-11-13.
+- [x] kicad-review/kpcb - `reroute` cut the router's failure line at 70 chars, mid-sentence, before the width and
+      the "boxed in by" list that names the blockers. Done: the whole line, minus the net prefix the row already
+      shows. 2026-11-13.
+
 - [x] kicad-review/kpcb - `tracks --kind cleanup` calibrated against master's `pcbnew/tracks_cleaner.cpp`,
       `pcb_track.cpp`, `seg.cpp`, `connectivity_data.cpp` and the dialog's defaults (read 2026-11-13; a GUI run is
       still impossible headless). Done: a merge needs both legs unlocked, nm-equal width and within 1 nm of one

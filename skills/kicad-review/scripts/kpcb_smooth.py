@@ -291,6 +291,8 @@ def _hole_clr(b):
     .kicad_pro minimum (0.2), raised by each .kicad_dru rule whose condition names that kind
     (A.Type == 'Via', A.isPlated(), NPTH), every kind by a rule naming none. One max for all
     read the PTH 0.28 at J7's NPTH pegs (0.2) and boxed in a VBUS escape laid by hand."""
+    if '_hclr' in b.__dict__:                        # once per board: every Exact asks
+        return b._hclr
     import glob, json
     d, floor = os.path.dirname(os.path.abspath(b.path)), 0.2
     for pro in glob.glob(os.path.join(d, '*.kicad_pro')):
@@ -307,6 +309,7 @@ def _hole_clr(b):
                                    ('pth', 'isPlated()' in cond and 'NPTH' not in cond)) if hit] or list(out)
             for k in ks:
                 out[k] = max(out[k], float(m[1]))
+    b._hclr = out
     return out
 
 
@@ -429,6 +432,7 @@ class Clear:
         # pads/vias are exempt; GND is exempt (the plane is everywhere).
         N = g.W * g.H
         self.own, self.allow = bytearray(N), bytearray(N)
+        self.has_own = False
         if net == 'GND':
             return
         R, ends = w / 2 + 0.005, (pts[0], pts[-1])
@@ -451,10 +455,17 @@ class Clear:
                 ring = fl['pts']
                 for u, v in zip(ring, ring[1:] + ring[:1]):
                     _paint(g, self.own, ('cap', u, v, 0.0), R)
-        for a, c in self.old:
-            for p in self._samples(a, c):
-                if self.own[self._k(p)]:
-                    _paint(g, self.allow, ('disk', p[0], p[1], 0.0), 0.5)
+        for a, c in self.old:                       # each run of samples on own copper: a 0.5 mm capsule
+            s = e = None                            # (a disk per 0.01 mm sample was 98% overlap)
+            for p, k in zip(*self._ks(a, c)):
+                if k >= 0 and self.own[k]:
+                    s, e = s or p, p
+                elif s:
+                    _paint(g, self.allow, ('cap', s, e, 0.0), 0.5)
+                    s = None
+            if s:
+                _paint(g, self.allow, ('cap', s, e, 0.0), 0.5)
+        self.has_own = 1 in self.own
 
     @property
     def exact(self):
@@ -463,31 +474,60 @@ class Clear:
             self._ex = Exact(self.b, self.net, self.ly, self.w, (bx[0] - 1, bx[1] - 1, bx[2] + 1, bx[3] + 1))
         return self._ex
 
-    def _samples(self, a, c):
-        n = max(1, math.ceil(math.dist(a, c) / (self.res / 2)))
-        return [(a[0] + (c[0] - a[0]) * k / n, a[1] + (c[1] - a[1]) * k / n) for k in range(n + 1)]
-
-    def _k(self, p):
+    def _ks(self, a, c):
+        """(samples res/2 apart along a-c, each one's raster index or -1 off the grid)"""
         g = self.g
-        i, j = round((p[0] - g.x0) / g.res), round((p[1] - g.y0) / g.res)
-        return j * g.W + i if 0 <= i < g.W and 0 <= j < g.H else -1
+        x0, y0, r, W, H = g.x0, g.y0, g.res, g.W, g.H
+        n = max(1, math.ceil(math.dist(a, c) / (r / 2)))
+        ps = [(a[0] + (c[0] - a[0]) * k / n, a[1] + (c[1] - a[1]) * k / n) for k in range(n + 1)]
+        ks = []                                     # inline: smooth's inner loop (~10^7 samples a board)
+        for px, py in ps:
+            i, j = round((px - x0) / r), round((py - y0) / r)
+            ks.append(j * W + i if 0 <= i < W and 0 <= j < H else -1)
+        return ps, ks
 
     def on_old(self, p):
         return any(pt_seg_dist(p, a, c) <= 2e-4 for a, c in self.old)
 
-    def contact_ok(self, a, c):
-        for p in self._samples(a, c):
-            k = self._k(p)
-            if k >= 0 and self.own[k] and not self.allow[k]:
-                return False
-        return True
+    def contact_ok(self, a, c, ks=None):
+        if not self.has_own:
+            return True
+        own, allow = self.own, self.allow
+        return not any(k >= 0 and own[k] and not allow[k] for k in (self._ks(a, c)[1] if ks is None else ks))
+
+    def _line(self, a, c):
+        """seg() of a horizontal / vertical a-c by raster slices, or None to walk the samples:
+        monotonic samples < 1 cell apart visit every cell from the first sample's to the last's"""
+        g = self.g
+        x0, y0, r, W, H = g.x0, g.y0, g.res, g.W, g.H
+        n = max(1, math.ceil(math.dist(a, c) / (r / 2)))
+        i0, j0 = round((a[0] - x0) / r), round((a[1] - y0) / r)
+        i1, j1 = round((a[0] + (c[0] - a[0]) * n / n - x0) / r), round((a[1] + (c[1] - a[1]) * n / n - y0) / r)
+        if not (0 <= min(i0, i1) and max(i0, i1) < W and 0 <= min(j0, j1) and max(j0, j1) < H):
+            return None
+        if j0 == j1:
+            lo, hi = sorted((j0 * W + i0, j0 * W + i1))
+            cut = slice(lo, hi + 1)
+        elif i0 == i1:
+            lo, hi = sorted((j0 * W + i0, j1 * W + i0))
+            cut = slice(lo, hi + 1, W)
+        else:
+            return None
+        if self.has_own and int.from_bytes(self.own[cut]) & ~int.from_bytes(self.allow[cut]):
+            return False
+        return None if 1 in self.blk[cut] else True
 
     def seg(self, a, c):
-        if not self.contact_ok(a, c):
+        if a[0] == c[0] or a[1] == c[1]:
+            r = self._line(a, c)
+            if r is not None:
+                return r
+        ps, ks = self._ks(a, c)
+        if not self.contact_ok(a, c, ks):
             return False
-        for p in self._samples(a, c):
-            k = self._k(p)
-            if (k < 0 or self.blk[k]) and not self.on_old(p):
+        blk = self.blk
+        for p, k in zip(ps, ks):
+            if (k < 0 or blk[k]) and not self.on_old(p):
                 return self.exact.seg(a, c)
         return True
 

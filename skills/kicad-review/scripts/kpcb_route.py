@@ -13,6 +13,7 @@ over inner layers, and penalises bends. It prints the path; -o OUT writes it int
 copy. KiCad's DRC on that copy is the verdict - the grid is conservative by half a
 cell, pads are their rectangle (a roundrect's corners are never assumed away)."""
 import argparse, heapq, itertools, math, re
+from array import array
 from collections import defaultdict
 from kcommon import natkey, unesc_disp
 from kpcb_board import PolyIndex, _pidx, bbox, grow, inside, pad_box, pt_seg_dist, xf, seg_seg_dist as _segd
@@ -45,14 +46,19 @@ SQ2 = math.sqrt(2)
 
 
 def _netclass(b, net):
-    import glob, json, os
-    for pro in glob.glob(os.path.join(os.path.dirname(os.path.abspath(b.path)), '*.kicad_pro')):
-        try:
-            cls = {c['name']: c for c in json.load(open(pro))['net_settings']['classes']}
-        except (OSError, ValueError, KeyError):
-            return {}
-        return cls.get(b.netclass(net) or 'Default') or cls.get('Default') or {}
-    return {}
+    if '_classes' not in b.__dict__:                # once per board: widen asked ~20k times
+        import glob, json, os
+        b._classes = {}
+        for pro in glob.glob(os.path.join(os.path.dirname(os.path.abspath(b.path)), '*.kicad_pro')):
+            try:
+                b._classes = {c['name']: c for c in json.load(open(pro))['net_settings']['classes']}
+            except (OSError, ValueError, KeyError):
+                b._classes = None
+            break
+    cls = b._classes
+    if not cls:
+        return {}
+    return cls.get(b.netclass(net) or 'Default') or cls.get('Default') or {}
 
 
 def class_via(cls):
@@ -478,7 +484,12 @@ class Grid:
                     paint(ras, ('cap', u, v, sw / 2), R)
                 if filled:
                     self.fill_rows(PolyIndex(ring), ras)
-        for f, p in pads:
+        g0, g1, g2, g3 = gbox                            # every window scans every pad and track: reject
+        for f, p in pads:                                # on raw coordinates first (exact, see each test)
+            if not p['prims']:                           # pad_box's half-extent is <= sx/2 + sy/2 at any angle
+                r = p['sx'] / 2 + p['sy'] / 2
+                if p['x'] + r < g0 or p['x'] - r > g2 or p['y'] + r < g1 or p['y'] - r > g3:
+                    continue
             bb = pad_box(p)
             if not near(bb):
                 continue
@@ -497,11 +508,10 @@ class Grid:
                 c = max(clr(net, p['net'], 'via', 'pad', ly) for ly in lys) if lys else clr(net, p['net'])
                 paint(self.vblk, sh, c + extra_clr + vsz / 2 + m)
         for t in b.tracks:
-            hw = t['w'] / 2
-            bb = (min(t['a'][0], t['b'][0]) - hw, min(t['a'][1], t['b'][1]) - hw,
-                  max(t['a'][0], t['b'][0]) + hw, max(t['a'][1], t['b'][1]) + hw)
-            if (t['net'] == net and net) or not near(bb):
-                continue
+            (ax, ay), (bx, by), hw = t['a'], t['b'], t['w'] / 2
+            if (t['net'] == net and net) or ax + hw < g0 and bx + hw < g0 or ax - hw > g2 and bx - hw > g2 \
+                    or ay + hw < g1 and by + hw < g1 or ay - hw > g3 and by - hw > g3:
+                continue                                 # = not near(its bbox): max(a, b) + hw = max(a + hw, b + hw)
             sh = ('cap', t['a'], t['b'], hw)
             B, VB = (self.sblk, self.svblk) if t.get('rid') in soft else (self.blk, self.vblk)
             if t['layer'] in B:
@@ -596,18 +606,20 @@ class Grid:
 
     def fill_rows(self, idx, ras, val=1, keep=None):
         """mark every grid point inside the ring, row by row; `keep` (a raster) must be 0"""
-        res, fb = self.res, idx.bbox
+        res, fb, W = self.res, idx.bbox, self.W
         out = []
         if ras is SINK:
             return out
+        fill = bytes([val])
         for j in range(max(0, int((fb[1] - self.y0) / res)), min(self.H, int((fb[3] - self.y0) / res) + 2)):
             for a0, a1 in self.spans(idx, self.y0 + j * res):
-                for i in range(max(0, math.ceil((a0 - self.x0) / res)), min(self.W - 1, int((a1 - self.x0) / res)) + 1):
-                    k = j * self.W + i
-                    if ras is not None:
-                        ras[k] = val
-                    elif not keep[k]:
-                        out.append(k)
+                i0, i1 = j * W + max(0, math.ceil((a0 - self.x0) / res)), j * W + min(W - 1, int((a1 - self.x0) / res))
+                if i0 > i1:
+                    continue
+                if ras is not None:                  # by slices: a plane is ~10^5 cells a window
+                    ras[i0:i1 + 1] = fill * (i1 - i0 + 1)
+                else:
+                    out += [k for k in range(i0, i1 + 1) if not keep[k]]
         return out
 
     def xy(self, k):
@@ -665,11 +677,12 @@ def astar(g, src, dst, lcost, via_cost, turn, pour_k, c0=None, c1=None, rip=0.0)
     cost of starting / ending at a cell (its distance to the anchor it must stub to),
     the end through a virtual sink so the cheapest finish wins, not the first reached.
     rip: cost per mm through g.sblk (and per via in g.svblk), a route this pass may rip"""
-    W, res = g.W, g.res
+    W, H, res = g.W, g.H, g.res
     L = g.layers
     goal = {(ly, k) for ly, ks in dst.items() for k in ks}
     if not goal:
         return None
+    goal_l = {ly: set(ks) for ly, ks in dst.items()}
     gx = [k % W for _ly, k in goal]
     gy = [k // W for _ly, k in goal]
     bx0, bx1, by0, by1 = min(gx), max(gx), min(gy), max(gy)
@@ -681,57 +694,62 @@ def astar(g, src, dst, lcost, via_cost, turn, pour_k, c0=None, c1=None, rip=0.0)
         dy = max(by0 - y, 0, y - by1)
         return res * lmin * (max(dx, dy) + (SQ2 - 1) * min(dx, dy))
 
-    best, came, heap = {}, {}, []
+    # best cost per layer in a flat array, not a dict keyed by (layer, cell): the lookup per
+    # neighbour was a third of the search. came keeps exactly best's reached keys.
+    best = {ly: array('d', [1e18]) * (W * H) for ly in set(L) | set(src)}
+    came, heap, push, pop = {}, [], heapq.heappush, heapq.heappop
+    steps = [(di, dx, dy, res * (SQ2 if dx and dy else 1.0)) for di, (dx, dy) in enumerate(DIRS)]
     c0, c1 = c0 or {}, c1 or {}
     for ly, ks in src.items():
         for k in ks:
             c = c0.get((ly, k), 0.0)
-            best[(ly, k)] = c
+            best[ly][k] = c
             came[(ly, k)] = None
-            heapq.heappush(heap, (c + h(k), c, ly, k, -1))
+            push(heap, (c + h(k), c, ly, k, -1))
     while heap:
-        f, gc, ly, k, dr = heapq.heappop(heap)
+        f, gc, ly, k, dr = pop(heap)
         if ly == '':                                    # the sink: k is the goal cell it came from
             path, s = [], k
             while s is not None:
                 path.append(s)
                 s = came[s][0] if came[s] else None
             return path[::-1]
-        if gc > best.get((ly, k), 1e18) + 1e-9:
+        bl = best[ly]
+        if gc > bl[k] + 1e-9:
             continue
-        if (ly, k) in goal:
-            heapq.heappush(heap, (gc + c1.get((ly, k), 0.0), gc + c1.get((ly, k), 0.0), '', (ly, k), -1))
+        if k in goal_l.get(ly, ()):
+            push(heap, (gc + c1.get((ly, k), 0.0), gc + c1.get((ly, k), 0.0), '', (ly, k), -1))
             continue
         x, y = k % W, k // W
         blk, pr, lc = g.blk[ly], g.pour[ly], lcost.get(ly, 1.0)
         sb = g.sblk[ly] if g.sblk else None
         fo = g.follow.get(ly) if g.follow else None     # 0.05 mm units of |distance - pitch|
-        for di, (dx, dy) in enumerate(DIRS):
+        for di, dx, dy, step in steps:
             nx, ny = x + dx, y + dy
-            if not (0 <= nx < W and 0 <= ny < g.H):
+            if not (0 <= nx < W and 0 <= ny < H):
                 continue
             nk = ny * W + nx
             if blk[nk]:
                 continue
-            step = res * (SQ2 if dx and dy else 1.0)
             c = gc + step * lc * (1 + pour_k * pr[nk]) + (turn * res if dr >= 0 and di != dr else 0)   # pr: 0/1/4
             if sb and sb[nk]:
                 c += rip * step
             if fo is not None:
                 c += step * g.follow_k * fo[nk] * 0.05
-            if c < best.get((ly, nk), 1e18) - 1e-9:
-                best[(ly, nk)] = c
+            if c < bl[nk] - 1e-9:
+                bl[nk] = c
                 came[(ly, nk)] = ((ly, k), di)
-                heapq.heappush(heap, (c + h(nk), c, ly, nk, di))
+                push(heap, (c + h(nk), c, ly, nk, di))
         if not g.vblk[k]:
             for l2 in L:
                 if l2 != ly and not g.blk[l2][k]:
                     c = gc + via_cost * (2 if g.vpour[k] else 1) + (rip if g.svblk and g.svblk[k] else 0)
-                    if c < best.get((l2, k), 1e18) - 1e-9:
-                        best[(l2, k)] = c
+                    b2 = best[l2]
+                    if c < b2[k] - 1e-9:
+                        b2[k] = c
                         came[(l2, k)] = ((ly, k), -1)
-                        heapq.heappush(heap, (c + h(k), c, l2, k, -1))
-    g.seen = best                                       # what a failure could reach: `_blockers` walls it
+                        push(heap, (c + h(k), c, l2, k, -1))
+    g.seen = came                                       # what a failure could reach: `_blockers` walls it
     return None
 
 

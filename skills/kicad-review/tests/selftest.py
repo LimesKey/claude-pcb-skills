@@ -57,6 +57,8 @@ CASES = [
     ("knet check",   ['knet.py', NET, 'check'],                 2, ["4 error, 5 warn, 2 info"]),
     ("knet divider", ['knet.py', NET, 'divider', '/VSENSE'],    0, ["1.6667 V", "1.6445 - 1.6890 V"]),
     ("knet walk",    ['knet.py', NET, 'walk', '/DANGLE'],       0, ["R2.2", "DNP"]),
+    ("knet usage",   ['knet.py', NET, 'path', 'U1'],            1, ["usage: knet.py FILE path R13 U2"]),   # was an IndexError
+    ("kdoc usage",   ['kdoc.py', 'near', 'x'],                  1, ["usage: kdoc.py near 'bias-t' 'resistor'"]),
     ("knet draw",    ['knet.py', NET, 'draw', 'U1', '-d', '2', '-o', svg1], 0, []),
     ("ksch render",  ['ksch.py', 'render', '-o', svg2, KSCH],   0, []),   # + no ERROR (checked below)
     ("kdrc selftest", ['kdrc.py', '--selftest'],                0, [" passed"]),     # the count moves; its exit code gates it
@@ -66,6 +68,8 @@ CASES = [
     ("kpcb nightly", ['kpcb.py', PCB3, 'summary'],              0, ["pcbnew 10.99", "placed 16"]),
     ("kpcb nightly check", ['kpcb.py', PCB3, 'check'],          2, ["4 error, 10 warn, 3 info"]),
     ("kpcb map",     ['kpcb.py', PCB, 'map'],                   0, []),
+    ("kpcb box arg", ['kpcb.py', PCB, 'tracks', '--box', '1,2'], 2, ["argument --box: '1,2': want X0,Y0,X1,Y1"]),  # was an IndexError
+    ("kpcb box order", ['kpcb.py', PCB, 'tracks', '--box', '40,30,0,0'], 0, ["tracks in 0,0,40,30:"]),  # reversed: was empty
     ("kpcb span",    ['kpcb.py', PCB, 'span'],                  0, ["1 net(s)"]),
     ("kpcb sheet",   ['kpcb.py', PCB, 'sheet'],                 0, ["/Test/", "/Test/Spare/"]),
     ("kpcb sync",    ['kpcb.py', PCB, 'sync', NET],             2, ["23 error, 7 warn"]),
@@ -1905,6 +1909,8 @@ def main(pick=(), listing=False, keep=False):
                   ["26.0 mm 0 via(s) (MST 16.0)  ->   16.0 mm 0 via(s)  REROUTED", "1 net(s) re-laid"]))
     CASES.append(("kpcb reroute result", ['kpcb.py', T('typed/dn2.kicad_pcb'), 'tracks', '--kind', 'detour'], 0,
                   ["detours (> 1.5x MST)      0 visible"]))
+    CASES.append(("kpcb reroute failed", ['kpcb.py', dn, 'reroute', '--avoid', '-50,-50,100,100'], 0,   # the whole reason:
+                  ["kept: the route failed (TP21.1 - FAILED: ", "it is covered by a rule area"]))       # it was cut at 70 chars
     CASES.append(("kpcb congest pending", ['kpcb.py', dn, 'congest'], 0,
                   ["congest: 3 unrouted link(s) over the copper on the board", "no cell over 50%"]))
     CASES.append(("kpcb congest hotspot", ['kpcb.py', channel_board(T('typed')), 'congest', '--cell', '1'], 0,

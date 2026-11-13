@@ -144,7 +144,7 @@ from collections import Counter, defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
-    from kcommon import refrange, natkey, trunc, prefix, unesc_disp, print_findings, parse_args
+    from kcommon import refrange, natkey, trunc, prefix, unesc_disp, print_findings, parse_args, box_arg
 except ImportError:                                     # pragma: no cover
     print("kpcb.py needs kcommon.py beside it (shared parser + finding formatter)",
           file=sys.stderr)
@@ -1018,7 +1018,7 @@ def main():
                          "'silk': that side's silkscreen drawn from the model, pads, bodies, outlines, texts, flagged ones red); "
                          "for `map`: one copper layer -> its copper occupancy (where routes can go); "
                          "for `route`: the layers it may use")
-    ap.add_argument('--box', default='', help='for `view`: X0,Y0,X1,Y1 board mm instead of refs; '
+    ap.add_argument('--box', default='', type=box_arg(False), help='for `view`: X0,Y0,X1,Y1 board mm instead of refs; '
                                               'for `fatten`/`stitch`/`ripup`: only tracks / vias in this box; '
                                               'for `tracks`: the census of this region; for `diff`: vias and tracks here')
     ap.add_argument('--px', type=float, default=20, help='for `view`: pixels per mm (plot: ~1200 px across the box; 60 for --tracks, 120 for --sites)')
@@ -1054,7 +1054,7 @@ def main():
                     help="for `route`: rip-up budget - a failed link may cross this run's own routes of "
                          "other nets, which are ripped and routed again at once (all undone if one cannot), "
                          "this many times per run (10; 0 = off)")
-    ap.add_argument('--avoid', default='', metavar='X0,Y0,X1,Y1[;..]',
+    ap.add_argument('--avoid', default='', type=box_arg(True), metavar='X0,Y0,X1,Y1[;..]',
                     help="for `route`: boxes no new track or via may touch, every layer, for this run only (a "
                          "footprint keepout that allows tracks, e.g. U1's antenna); nothing is written for them")
     ap.add_argument('--rip-board', type=int, default=0, metavar='N',
@@ -1072,7 +1072,7 @@ def main():
                     help='for `route`: the longest a neck may run before the class width, mm (1.5; 0 = off)')
     ap.add_argument('--minw', type=float, default=None,
                     help='for `fatten`: only tracks at least this wide get a band (0.5: sense legs stay thin)')
-    ap.add_argument('--keep', default='', help='for `fatten`: X0,Y0,X1,Y1[;...] boxes the bands stay out of; '
+    ap.add_argument('--keep', default='', type=box_arg(True), help='for `fatten`: X0,Y0,X1,Y1[;...] boxes the bands stay out of; '
                     'for `stitch --sparse`: boxes no via goes in')
     ap.add_argument('--n', type=int, default=0, help='for `stitch`: vias per anchor (3 near a point, 2 beside each via)')
     ap.add_argument('--sparse', type=float, default=0.0, metavar='T',

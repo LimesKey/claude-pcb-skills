@@ -434,8 +434,9 @@ def c_reroute(b, a):
                 if ok:
                     a2 = copy.copy(a); a2.args, a2.out, a2.pending = [net], t2, False
                     c_route(Board(t1), a2)
-            if not (ok and os.path.exists(t2)):
-                print(f"{label}  kept: the route failed ({(log.getvalue().strip().splitlines() or ['?'])[-1][:70]})")
+            if not (ok and os.path.exists(t2)):           # the router's whole line: it names the blockers
+                why = (log.getvalue().strip().splitlines() or ['?'])[-1].removeprefix(f"{net}: ")
+                print(f"{label}  kept: the route failed ({why})")
                 continue
             B2 = Board(t2)
             if links(B2, net)[1]:

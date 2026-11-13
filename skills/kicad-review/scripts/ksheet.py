@@ -44,7 +44,7 @@ from collections import Counter, defaultdict
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from kcommon import (Netlist, kid, kids, val, load_sexp, sym_geometry, natkey,  # noqa: E402
                      print_findings, kicad_cli, sch_files, CACHE, cache_prune, parse_args,
-                     top_level_sheets, _xf, svg_png)
+                     top_level_sheets, _xf, svg_png, box_arg)
 
 RULES = {
     'WIREBODY': 'a wire runs through a symbol body',
@@ -744,7 +744,7 @@ def main():
     ap.add_argument('-r', type=float, default=None, help='radius mm (sch 5, lint --around 10, view 10)')
     ap.add_argument('--around', default='', help='lint: only the region around this REF')
     ap.add_argument('--crowd', type=float, default=2.54, help='lint CROWD distance, mm')
-    ap.add_argument('--box', default='', help='view: X0,Y0,X1,Y1 sheet mm')
+    ap.add_argument('--box', default='', type=box_arg(), help='view: X0,Y0,X1,Y1 sheet mm')
     ap.add_argument('--px', type=float, default=20, help='view: pixels per mm (20)')
     ap.add_argument('-o', '--out', default='')
     ap.add_argument('--max', type=int, default=25)
