@@ -3,6 +3,14 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in [BACKLOG.md](BACKLOG.md).
 
+- [x] repo - CI. Done: `.github/workflows/verify.yml` runs `tools/verify.sh` on Python
+      3.12 and 3.14 (ubuntu-latest, actions/checkout v7.0.1 and setup-python v7.1.0
+      pinned by SHA, read-only token, no persisted credentials, librsvg for the PNG
+      views); `.github/dependabot.yml` bumps the actions weekly with a 7-day
+      cooldown. actionlint and zizmor clean. Found on the way: the selftest failed
+      3 `kpcb view` PNG cases wherever `rsvg-convert` is missing (the docs call it
+      optional); it now skips them with a note. Python 3.12 checked locally on a
+      runner-like PATH and empty HOME: 285/285 + 3 skipped. 2026-11-12.
 - [x] kicad-review - selftest.py and its fixtures moved from `references/` to `tests/`,
       so `references/` holds only the manuals the router links. Paths in recipes.md,
       README, BACKLOG and verify.sh follow; verify.sh still baselines against a REV

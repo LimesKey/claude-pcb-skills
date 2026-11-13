@@ -2200,6 +2200,11 @@ def main(pick=(), listing=False):
         print('\n'.join(c[0] for c in CASES)); return 0
     if pick:                       # -k: matching cases only; the ad-hoc checks below read every case's output
         CASES[:] = with_inputs(CASES, {i for i, c in enumerate(CASES) if any(k in c[0] for k in pick)})
+    import shutil
+    if not shutil.which('rsvg-convert'):     # a PNG view needs it, and the docs call it optional
+        png = [c for c in CASES if 'view' in c[1] and any(str(a).endswith('.png') for a in c[1])]
+        CASES[:] = [c for c in CASES if c not in png]
+        print(f"skip  {len(png)} PNG view case(s): rsvg-convert not installed")
     for label, argv, want_exit, needles in CASES:
         code, out = run(argv)
         prob = []
