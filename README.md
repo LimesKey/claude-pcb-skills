@@ -160,7 +160,7 @@ skills/
   part-search/
     SKILL.md
     scripts/           part.py (+ part_*.py modules), kcap.py
-    references/        pick, best, brands, endpoints, kcap
+    references/        pick, best, endpoints, kcap
 agents/pcb-reviewer.md
 tools/verify.sh        every check a change must pass
 tools/pack.sh          dist/*.skill bundles for claude.ai

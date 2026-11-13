@@ -27,7 +27,7 @@ python3 $P pick MLCC --cap 4.7u..100u --volt '>=25' --pkg 0805 --diel X7R,X5R
 | "something like TPS2553 but lower RDS(on)" | `pick --like C55266 --rdson '<=50m'` (category + package from the part, limits from you) |
 | "find a TVS / LDO / I/O expander / test point that ..." | `pick TVS --pkg ... --vrwm ...` (the part-type word selects the JLC category; `--cat` to force one) |
 | "is there something cheaper than C45783" / "C45783 is out of stock" | `alt C45783` (nothing? it lists near misses that fail one limit) |
-| "is brand X (CCTC, Chinocera, ...) any good" / "these two cost the same, which maker" | read [brands](references/brands.md) - scored makers + the price-tie rule, no search needed |
+| "is brand X (CCTC, Chinocera, ...) any good" / "these two cost the same, which maker" | read the project's maker tier list if its CLAUDE.md names one (scored makers + price-tie rule), no search needed |
 | "what does C18164413 cost / is it stocked" | `show` |
 | "is this part JLC Basic", "what are my assembly fees" | `jlc` - see [endpoints](references/endpoints.md) |
 | "datasheet link for X" | `ds` |
@@ -55,7 +55,7 @@ constraints, use `pick`, not `search`.**
 2. `compare C.. C.. C..` on the shortlist - only the parameters that differ
    (`--attrs` for all). Rows merge across catalog spellings, values in SI units.
    Rows that all pass and sit within ~10% on `ext`: the maker breaks the tie, by
-   the score in [brands](references/brands.md). Say which tie it broke.
+   the project's maker tier list, if its CLAUDE.md names one. Say which tie it broke.
 3. `ds C.. --save`, then `kdoc.py grep 'Absolute Maximum' -d <MPN>` (kicad-review) for
    what LCSC's parameters do not carry: abs max, recommended operating range,
    derating, pinout, land pattern. A dimension off a drawing: `kdoc.py page`.

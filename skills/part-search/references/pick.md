@@ -227,4 +227,5 @@ of that. See [endpoints.md](endpoints.md).
 ## Brands
 
 `pick` ranks on price and never on brand. "Is this unknown MLCC brand OK?" is
-answered in [brands](brands.md) (sourced, dated) - read it instead of searching.
+answered by the project's maker tier list, if its CLAUDE.md names one - read it
+instead of searching.
