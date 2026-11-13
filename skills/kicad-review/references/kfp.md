@@ -13,7 +13,8 @@ python3 $F board.kicad_pcb show U2                  # the BOARD's copy, back in 
 python3 $F board.kicad_pcb view J1 -o j1.png        # kicad-cli's plot, pads sketched + numbered
 python3 $F board.kicad_pcb diff [REF..]             # board copies vs their libraries (0.4 s, whole board)
 python3 $F board.kicad_pcb libs                     # where footprints and 3D models come from
-python3 $F board.kicad_pcb vendor [--apply]         # copy the out-of-repo ones into the project (dry run)
+python3 $F board.kicad_pcb vendor [--apply]         # copy out-of-repo footprints/models, and out-of-repo or
+                                                    # schematic-edited symbols, into the project (dry run)
 python3 $F X.kicad_mod edit OP.. -o OUT               # scripted edits; `edit` alone lists the ops
 ```
 
@@ -92,8 +93,8 @@ files and models outside the repo (an untracked repo model is listed as `repo, U
 
 ## vendor
 
-`kfp.py BOARD vendor [--lib NICK] [--models DIR] [--apply [--force]]`: make the project
-self-contained. Every footprint from a library outside the repo goes into the project library
+`kfp.py BOARD vendor [--lib NICK] [--symlib NICK] [--models DIR] [--erc REPORT.json] [--apply [--force]]`:
+make the project self-contained. Every footprint from a library outside the repo goes into the project library
 NICK (default: the one in the project fp-lib-table): the library file verbatim when the board
 copy matches it, else the board's copy in library form (Reference `REF**`, version line added),
 so Update Footprint becomes a no-op; instances that differ from the one written are named
@@ -102,8 +103,21 @@ so Update Footprint becomes a no-op; instances that differ from the one written 
 siblings and re-pointed as `${KIPRJMOD}/...`; a different file already there is never
 overwritten (that path stays). Lib ids move on the board and in every placed symbol's Footprint
 field, never in the `lib_symbols` cache (that would read as lib_symbol_mismatch); NICK joins
-the fp-lib-table if missing. Also listed: symbol libraries used from outside the repo (not
-copied), and stock footprints Update Footprint would change, by direction against another
+the fp-lib-table if missing.
+
+Symbols: every one from a library outside the repo, and every one ERC calls
+`lib_symbol_mismatch` (edited in the schematic; any library, stock and repo too; kicad-cli ERC
+runs unless `--erc` hands it a saved JSON report; an ERC set to ignore that check finds none),
+goes into the project library `--symlib NICK` (default: the one repo library in the
+sym-lib-table) as the schematic's cached copy, Reference cut to its prefix, under its library
+name; a second version of a name (KiCad's `NAME_1` lib_name variant, or two sheets) becomes
+`NAME_1`, `NAME_2`. NICK's own copy of a name is replaced only when no symbol in the project
+uses it (else the next free name). lib_id moves to `NICK:NAME` on every instance and cache
+entry (lib_name dropped), and Footprint fields inside the copied symbols follow the vendored
+footprints in library and cache alike, so ERC finds them equal. A symbol whose library is in
+no table here is only counted. NICK joins the sym-lib-table if missing.
+
+Also listed: stock footprints Update Footprint would change, by direction against another
 KiCad install's stock copy (stable beside nightly): the board equal to the older copy = worth
 pulling; both stock copies equal = a local fix it would undo. Dry run by default; --apply
 writes in place, refused while KiCad holds the project. Prove it after: `kfp libs` (nothing
@@ -111,7 +125,10 @@ outside), `kverify .` (ERC and sync PASS; the netlist row is only the re-pointed
 fields), `kpcb diff OLD` ("no change": geometry is untouched). Reference board 2026-11-12, on a
 scratch copy: 13 footprints (all board copies, each with board-side fixes) and 18 model files,
 19 paths re-pointed, 18 Footprint fields; ERC 0 added, sync identical, `kpcb diff` no change,
-`kfp diff Q5 U13 BT1` identical.
+`kfp diff Q5 U13 BT1` identical. Symbols, same copy: 24 into `parsnip-node` (22 new, 2 replacing
+its unused or edited copy; LM61460 kept as 2 versions), 32 instances in 9 sheets; ERC 20
+lib_symbol_mismatch removed, 0 added; kicad-cli stable and nightly both load the library, and
+nightly's re-save of it is identical; a second dry run has nothing to do.
 
 ## edit
 

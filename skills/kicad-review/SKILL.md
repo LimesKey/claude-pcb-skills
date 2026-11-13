@@ -136,7 +136,7 @@ scrambled. The plot only tells you which sheet a symbol lives on.
 | is this footprint right (courtyard, Fab body, silk-to-pad, mask webs, EP paste, thermal-via numbering, origin, 3D model) | `kfp.py FILE.kicad_mod\|DIR.pretty\|Lib:Name lint` (`show` for pads, pitch, gaps, body; `view` for kicad-cli's own plot) |
 | why does DRC say lib_footprint_mismatch / what would Update Footprint change | `kfp.py FILE.kicad_pcb diff [REF..]` - field by field, KiCad's own comparison first, then what DRC ignores (board overrides, 3D model, widths) |
 | fix a footprint file (courtyard, Fab outline, origin, pad size/shape/mask, KLC widths, model path) | `kfp.py FILE.kicad_mod edit crtyd klc fab 0.8x0.8 origin body pad 'A*' 'size=0.25,0.25' widths -o OUT` - prints the lint delta |
-| which footprints/3D models live outside the repo, unused library footprints; copy them into the project / what a stock library update would change or undo | `kfp.py FILE.kicad_pcb libs`; `kfp.py FILE.kicad_pcb vendor [--apply]` |
+| which footprints/3D models live outside the repo, unused library footprints; copy them (and outside or schematic-edited symbols) into the project / what a stock library update would change or undo | `kfp.py FILE.kicad_pcb libs`; `kfp.py FILE.kicad_pcb vendor [--symlib NICK] [--apply]` |
 | why won't the file open / which KiCad opens it / is KiCad holding the project | `kdrc.py FILE.kicad_pcb doctor` |
 | unfamiliar board, what is on it | `knet.py FILE summary` then `check` |
 | draw a circuit that exists | `knet.py FILE draw U8 -d 2 -o out.svg` |

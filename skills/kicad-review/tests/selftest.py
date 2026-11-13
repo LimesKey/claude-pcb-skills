@@ -383,9 +383,31 @@ def cleanup_board(d):
                       + _tvia(12, 5, 'N') + _tvia(12, 5, 'N'))
 
 
+def sym(item, ind, fp='""', name=None, ref='U', extra=None):
+    """a symbol node in KiCad's layout, `ind` tabs deep: Reference, Footprint, an optional extra
+    field, one unit drawing a box"""
+    t = '\t' * ind
+    prop = lambda k, v: f'{t}\t(property "{k}" {v}\n{t}\t\t(at 0 0 0)\n{t}\t)\n'      # noqa: E731
+    return (f'{t}(symbol "{name or item}"\n' + prop('Reference', f'"{ref}"') + prop('Footprint', fp)
+            + (prop(extra, '"X"') if extra else '')
+            + f'{t}\t(symbol "{item}_0_1"\n{t}\t\t(rectangle\n{t}\t\t\t(start -1 1)\n{t}\t\t\t(end 1 -1)\n{t}\t\t)\n{t}\t)\n{t})')
+
+
+def symlib(*syms):
+    return '(kicad_symbol_lib\n\t(version 20251024)\n\t(generator "t")\n' + ''.join(s + '\n' for s in syms) + ')\n'
+
+
+def placed(lib_id, uuid, ref, fp=None, lib_name=None):
+    return ('\t(symbol\n' + (f'\t\t(lib_name "{lib_name}")\n' if lib_name else '') + f'\t\t(lib_id "{lib_id}")\n'
+            f'\t\t(uuid "{uuid}")\n\t\t(property "Reference" "{ref}"\n\t\t)\n'
+            + (f'\t\t(property "Footprint" {fp}\n\t\t)\n' if fp else '') + '\t)\n')
+
+
 def vendor_proj(d):
     """a project whose board takes ext:R from a library outside it, with a 3D model there too,
-    and a schematic naming ext:R in a placed symbol and in its lib_symbols cache"""
+    and a schematic naming ext:R in a placed symbol and in its lib_symbols cache. Symbols: Q1
+    and Q2 (KiCad's lib_name variant Q_1) from extsym outside the repo, U1 from the project's
+    ps with an MPN field added in the schematic (erc.json: ERC's lib_symbol_mismatch on it)"""
     pj, ext = os.path.join(d, 'vend'), os.path.join(d, 'vend_ext')
     for x in (pj, os.path.join(pj, 'lib', 'p.pretty'), os.path.join(ext, 'ext.pretty')):
         os.makedirs(x, exist_ok=True)
@@ -399,10 +421,20 @@ def vendor_proj(d):
                       (os.path.join(pj, 'fp-lib-table'), '(fp_lib_table\n\t(version 7)\n'
                        f'\t(lib (name "p") (type "KiCad") (uri "${{KIPRJMOD}}/lib/p.pretty") (options "") (descr ""))\n'
                        f'\t(lib (name "ext") (type "KiCad") (uri "{ext}/ext.pretty") (options "") (descr ""))\n)\n'),
+                      (os.path.join(pj, 'sym-lib-table'), '(sym_lib_table\n\t(version 7)\n'
+                       '\t(lib (name "ps") (type "KiCad") (uri "${KIPRJMOD}/lib/ps.kicad_sym") (options "") (descr ""))\n'
+                       f'\t(lib (name "extsym") (type "KiCad") (uri "{ext}/extsym.kicad_sym") (options "") (descr ""))\n)\n'),
+                      (os.path.join(pj, 'lib', 'ps.kicad_sym'), symlib(sym('S', 1))),
+                      (os.path.join(ext, 'extsym.kicad_sym'), symlib(sym('Q', 1, '"ext:R"'))),
+                      (os.path.join(pj, 'erc.json'), '{"sheets": [{"violations": [{"type": "lib_symbol_mismatch", '
+                       '"items": [{"description": "Symbol U1 [S]", "uuid": "u1"}]}]}]}'),
+                      (os.path.join(pj, 'erc0.json'), '{"sheets": []}'),
                       (os.path.join(pj, 'v.kicad_sch'), '(kicad_sch\n\t(version 20250114)\n\t(lib_symbols\n'
-                       '\t\t(symbol "Device:R"\n\t\t\t(property "Footprint" "ext:R"\n\t\t\t)\n\t\t)\n\t)\n'
-                       '\t(symbol\n\t\t(lib_id "Device:R")\n\t\t(property "Reference" "R1"\n\t\t)\n'
-                       '\t\t(property "Footprint" "ext:R"\n\t\t)\n\t)\n)\n')):
+                       '\t\t(symbol "Device:R"\n\t\t\t(property "Footprint" "ext:R"\n\t\t\t)\n\t\t)\n'
+                       + sym('Q', 2, '"ext:R"', 'extsym:Q', 'Q1') + '\n' + sym('Q_1', 2, '"ext:R"', ref='Q2', extra='Rev')
+                       + '\n' + sym('S', 2, name='ps:S', ref='U1', extra='MPN') + '\n\t)\n'
+                       + placed('Device:R', 'r1', 'R1', '"ext:R"') + placed('extsym:Q', 'q1', 'Q1', '"ext:R"')
+                       + placed('extsym:Q', 'q2', 'Q2', lib_name='Q_1') + placed('ps:S', 'u1', 'U1') + ')\n')):
         with open(path, 'w') as fh:
             fh.write(txt)
     body = mod.replace('(footprint "R"', '(footprint "ext:R"').replace('"REF**"', '"R1"').replace(
@@ -1961,13 +1993,17 @@ def main(pick=(), listing=False, keep=False):
                   ["KiCad cleanup would change    4 visible", "collinear joint", "duplicate 4.00 mm segment", "0.40 mm wholly inside J1.1",
                    "duplicate via"]))
     vp = vendor_proj(tmp.name)
-    CASES.append(("kfp vendor dry run", ['kfp.py', os.path.join(vp, 'v.kicad_pcb'), 'vendor'], 0,
+    vend = ['kfp.py', os.path.join(vp, 'v.kicad_pcb'), 'vendor', '--erc', os.path.join(vp, 'erc.json')]
+    CASES.append(("kfp vendor dry run", vend, 0,
                   ["vendor into p (lib/p.pretty), models into lib/3dmodels", "footprint ext:R -> p:R  (R1): library file",
-                   "models: 1 file(s) from", "-> ${KIPRJMOD}/lib/3dmodels/R.step  (R1)", "schematic v.kicad_sch: 1 Footprint field(s)",
-                   "board: 1 footprint(s) re-pointed", "(dry run: --apply"]))
-    CASES.append(("kfp vendor --apply", ['kfp.py', os.path.join(vp, 'v.kicad_pcb'), 'vendor', '--apply', '--force'], 0,
-                  ["wrote 1 footprint(s), 1 model file(s), the board, 1 schematic(s)"]))
-    CASES.append(("kfp vendor result", ['kfp.py', os.path.join(vp, 'v.kicad_pcb'), 'vendor'], 0,
+                   "models: 1 file(s) from", "-> ${KIPRJMOD}/lib/3dmodels/R.step  (R1)", "schematic v.kicad_sch: 2 Footprint field(s)",
+                   "board: 1 footprint(s) re-pointed", "(dry run: --apply", "symbol extsym:Q -> ps:Q  (Q1): outside the repo",
+                   "symbol extsym:Q -> ps:Q_1  (Q2): outside the repo",
+                   "symbol ps:S  (U1): edited in the schematic; the schematic's copy replaces the library's",
+                   "symbols: 3 written into ps (lib/ps.kicad_sym, 1 replacing its own copy), 3 instance(s) re-pointed in 1"]))
+    CASES.append(("kfp vendor --apply", vend + ['--apply', '--force'], 0,
+                  ["wrote 1 footprint(s), 1 symbol library, 1 model file(s), the board, 1 schematic(s)"]))
+    CASES.append(("kfp vendor result", vend[:-1] + [os.path.join(vp, 'erc0.json')], 0,
                   ["nothing outside the repo: already self-contained"]))
     CASES.append(("kpcb zoneshape lint", ['kpcb.py', fz, 'zoneshape'], 0,
                   ["2 zone(s), 1 not hand-drawn style", "1 over a designer's bar", "za        P                  F.Cu     26    24    24    2  26 -> 8 pts  [fatten P]"]))
@@ -2312,6 +2348,14 @@ def main(pick=(), listing=False, keep=False):
         print(f"\n{n - fails}/{n} passed (-k {' '.join(pick)}: the ad-hoc checks are skipped, the full run"
               f" is the gate)" if CASES else f"no case label contains {pick} (--list names them)")
         return 1 if fails or not CASES else 0
+    vl, vs = (open(os.path.join(vp, f)).read() for f in ('lib/ps.kicad_sym', 'v.kicad_sch'))
+    fails += check(all(x in vl for x in ('\t(symbol "Q"\n\t\t(property "Reference" "Q"', '(symbol "Q_0_1"', '\t(symbol "Q_1"\n',
+                                          '(symbol "Q_1_0_1"', '(property "Footprint" "p:R"', '(property "MPN"'))
+                   and vl.count('\t(symbol "S"') == 1 and 'ext:R' not in vl and 'lib_name' not in vs
+                   and all(x in vs for x in ('(symbol "ps:Q"', '(symbol "ps:Q_1"', '(lib_id "ps:Q_1")', '(symbol "ps:S"'))
+                   and vs.count('"p:R"') == 4 and '(lib_id "Device:R")' in vs,
+                   "kfp vendor symbols: cached copies in ps (Reference prefix, units named, footprint re-pointed in "
+                   "library and cache), S replaced once, lib_id/lib_name re-pointed, Device:R untouched")
     rc2 = open(os.path.join(tmp.name, 'silkart', 'rc2.kicad_pcb')).read() if os.path.exists(
         os.path.join(tmp.name, 'silkart', 'rc2.kicad_pcb')) else ''
     fails += check('(render_cache "RC"' in rc2 and '(xy 6 16.5) (xy 8 16.5)' in rc2.replace('\n\t\t\t\t\t', ' ')

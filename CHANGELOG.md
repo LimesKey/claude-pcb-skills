@@ -3,6 +3,20 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kfp - `vendor`, the symbol half. Done: symbols from a library outside the repo, and those
+      kicad-cli ERC calls `lib_symbol_mismatch` (edited in the schematic, any library; `--erc REPORT.json` reads a
+      saved report), are written from each schematic's lib_symbols cache into `--symlib NICK` (default: the one
+      repo library in sym-lib-table; Reference cut to its prefix, units renamed with the symbol); lib_id re-pointed
+      on every instance and cache entry (lib_name dropped), Footprint fields inside the copied symbols follow the
+      vendored footprints in library and cache; a second version of a name gets NAME_1, NAME_2; NICK's own copy is
+      replaced only when nothing in the project uses it; sym-lib-table entry added if missing. Reference board on a
+      scratch copy: 24 symbols (2 replacing), 32 instances in 9 sheets; kverify ERC 0 added, 20 lib_symbol_mismatch
+      removed, sync identical, netlist only the 18 re-pointed Footprint fields; stable and nightly kicad-cli load the
+      library and nightly's re-save is identical; a second dry run has nothing to do. Found on the way: stock symbol
+      libraries were listed as "outside the repo" (`kicad_env` knew no stock symbol dir; now `KICADn_SYMBOL_DIR`
+      too), "models: 0 file(s) from ," printed an empty list, and "already self-contained" was claimed while a KEEP
+      left a model outside the repo. 2026-11-13.
+
 - [x] kicad-review/kdrc - `--baseline` given kdrc's own `--json` output (finding rows, a list) crashed in
       `_against` (`'list' object has no attribute 'get'`). Those rows carry no items to match on, so it now exits
       naming the right file (`--report OLD.json`, kicad-cli's raw report); `--help` says "not --json output".

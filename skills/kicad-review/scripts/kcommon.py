@@ -269,9 +269,9 @@ def _global_cfg():
 def kicad_env(projdir):
     """The ${VARS} KiCad expands in a library or 3D model path: the environment, the
     newest config's kicad_common.json, ${KIPRJMOD}, and the stock KICADn_FOOTPRINT_DIR /
-    KICADn_3DMODEL_DIR found on disk (nightly's for an X.99 config). KiCad defines the
+    _3DMODEL_DIR / _SYMBOL_DIR found on disk (nightly's for an X.99 config). KiCad defines the
     stock ones itself for every n (10.99 resolves KICAD10_ and KICAD11_ alike), so a
-    lookup of any KICADn_FOOTPRINT_DIR / _3DMODEL_DIR the dict lacks falls back to them."""
+    lookup of any KICADn_FOOTPRINT_DIR / _3DMODEL_DIR / _SYMBOL_DIR the dict lacks falls back to them."""
     if projdir in _ENVS:
         return _ENVS[projdir]
     cfg = _global_cfg()
@@ -279,7 +279,7 @@ def kicad_env(projdir):
     if cfg and cfg.endswith('.99'):
         share.insert(0, '/usr/share/kicad-nightly')
     stock = {k: next((os.path.join(d, sub) for d in share if os.path.isdir(os.path.join(d, sub))), None)
-             for k, sub in (('FOOTPRINT', 'footprints'), ('3DMODEL', '3dmodels'))}
+             for k, sub in (('FOOTPRINT', 'footprints'), ('3DMODEL', '3dmodels'), ('SYMBOL', 'symbols'))}
     env = {}
     if cfg:
         maj = os.path.basename(cfg).split('.')[0]
@@ -299,7 +299,7 @@ def expand_vars(path, env):
     """`path` with its ${VARS} from kicad_env; an unknown one stays as written"""
     def one(m):
         k = m.group(1)
-        st = re.fullmatch(r'KICAD\d+_(FOOTPRINT|3DMODEL)_DIR', k)
+        st = re.fullmatch(r'KICAD\d+_(FOOTPRINT|3DMODEL|SYMBOL)_DIR', k)
         return env.get(k) or (st and env['_stock'].get(st.group(1))) or m.group(0)
     return re.sub(r'\$\{(\w+)\}', one, path)
 
