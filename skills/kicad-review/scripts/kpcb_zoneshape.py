@@ -137,7 +137,8 @@ def redraw(b, z, P, eps=0.1, res=0.05):
                 if ok(R[i:k + 1], cand, rest):
                     best, path = k, cand
                     break
-        if len(path) == 2 and not octi(*path):          # an edge kept: on 0/45/90 if that holds
+        if len(path) == 2 and not octi(*path, drift=math.inf):   # an edge kept: on 0/45/90 if that holds
+            # (angle only: a knee for a sub-0.3 deg drift is an edge < 0.3 mm, a `zonepts` row)
             rest = list(zip(Q, Q[1:])) + list(zip(R[best:], R[best + 1:]))
             path = next(([R[i], kn, R[best]] for kn in _knees(R[i], R[best])
                          if ok(R[i:best + 1], [R[i], kn, R[best]], rest)), path)

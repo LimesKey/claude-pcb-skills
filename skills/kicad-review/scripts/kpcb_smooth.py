@@ -21,6 +21,8 @@ unchamfered 90s, acute corners, doubled segments and hairpin spurs. One pass per
   smooth --twins    two same-net runs side by side into one pad (a star) re-laid as a daisy
                     chain: the run from the farther start deleted, that start joined to the
                     nearer one's start (not in --all: it changes the topology)
+  smooth --joints   two dead ends joined only by their caps (`tracks` `joint`) run along their own
+                    lines onto one point; an off-axis T's end onto the other's axis
   smooth --micro    segments under 0.05 mm (`tracks` `stub`): one joining something at both ends
                     collapsed into its neighbours (their shared ends moved together), one with a
                     free end deleted only when other same-net copper wholly covers it
@@ -31,8 +33,9 @@ A chain is a run of same-net, same-layer, same-width segments between anchors: a
 via its end cap touches (KiCad joins on the cap, not the centreline end), a junction of
 3+ ends, a width change, a T into another track, an arc or a locked track; a segment whose
 body crosses a pad or via it does not end on is frozen. Cost = length + bends (45: 0.5,
-90: 3, acute: 15) + 2 and 10% per off-45 segment; the old chain is always a candidate. A
-result more than 9% longer is refused (octilinear is at most 8.3% over any-angle).
+90: 3, acute: 15) + 2 and 10% per off-45 segment (> 0.3 deg, or its far end > 10 um off the
+0/45/90 line: a long near-straight run); the old chain is always a candidate, a new leg under
+0.05 mm never is. A result more than 9% longer is refused (octilinear is at most 8.3% over any-angle).
 
 Clearance (`Clear`): route's Grid at 0.02 mm, grown by 0.8 cell so a free grid point is
 free wherever it rounds from - netclass, .kicad_dru pair AND type rules (track 0.127 outer
@@ -79,9 +82,15 @@ def turn(d1, d2):
     return abs((d2 - d1 + 180) % 360 - 180)
 
 
-def octi(a, b):
+DRIFT = 0.01                                        # a run whose far end is this far off its 0/45/90 line reads crooked
+
+
+def octi(a, b, drift=DRIFT):
+    """on 0/45/90: within 0.3 deg AND its far end within `drift` of that line - 0.3 deg alone
+    passed a 10.35 mm trunk 0.28 deg off (50 um of drift, crooked in KiCad, reference board)"""
     r = ang(a, b) % 45
-    return min(r, 45 - r) < 0.3
+    dev = min(r, 45 - r)
+    return dev < 0.3 and math.dist(a, b) * math.sin(math.radians(dev)) < drift
 
 
 def bend(th):
@@ -551,8 +560,8 @@ def solve(pts, ck, span=30):
                         break
                     continue
                 con = simplify(con)
-                if len(con) < 2:
-                    continue
+                if len(con) < 2 or len(con) > 2 and any(math.dist(u, v) < MICRO - 1e-6 for u, v in zip(con, con[1:])):
+                    continue                            # a new leg under MICRO is a `stub` row, not a fix
                 if (j > i + 1 or len(con) > 2 or con[-1] != pts[j]) and not ck.poly(con):
                     continue
                 bent |= len(con) == 3
@@ -1055,16 +1064,20 @@ def pass_square(b, skip, sel):
             hosts = [p for p in ix.pads[t['net']] if on_layer(p, t['layer']) and in_pad(p, E)]
             if not hosts:
                 continue
+            far = [u['b'] if q(u['a']) == q(E) else u['a'] for j, u in enumerate(b.tracks) if j != i and
+                   u['net'] == t['net'] and u['layer'] == t['layer'] and q(E) in (q(u['a']), q(u['b']))]
             for k in range(8):
                 if turn(ang(F, E), k * 45) > 20:
                     continue
                 u = (math.cos(math.radians(k * 45)), math.sin(math.radians(k * 45)))
                 s = (E[0] - F[0]) * u[0] + (E[1] - F[1]) * u[1]
                 E2 = (F[0] + u[0] * s, F[1] + u[1] * s)
-                if s > 0.05 and math.dist(E, E2) <= 0.5 and any(in_pad(p, E2, -t['w'] / 4) for p in hosts) and \
-                        (best is None or math.dist(E, E2) < best[0]):
-                    best = (math.dist(E, E2), E, E2, F)
-        if not best:
+                key = (round(math.dist(E, E2), 4), -max(min(p['sx'], p['sy']) for p in hosts))
+                if s > 0.05 and key[0] <= 0.5 and any(in_pad(p, E2, -t['w'] / 4) for p in hosts) and \
+                        not any(octi(E, G) and not octi(E2, G) for G in far) and \
+                        (best is None or key < best[0]):    # never tilts a track it drags; a tie moves
+                    best = (key, E, E2, F)                  # the end in the bigger pad (the small one's
+        if not best:                                        # anchor is the one that shows)
             continue
         _d, E, E2, F = best
         co = [j for j, u in enumerate(b.tracks) if j != i and u['net'] == t['net'] and u['layer'] == t['layer']
@@ -1083,14 +1096,16 @@ def pass_square(b, skip, sel):
 
 def pad_ends(b, ix, skip, inside=False):
     """[(track idx, end, 'REF.PIN', pad)]: a dead end (no other same-net track or via within
-    reach) whose cap touches a same-net pad but whose centreline end is outside it or within
+    reach, not in its own net's saved fill: that stub is a pour tie) whose cap touches a same-net pad but whose centreline end is outside it or within
     GRAZE of its edge. KiCad joins on a graze; a reviewer sees a trace that stops at the pad
     edge. inside: also ends deeper in, >= 0.05 mm off centre - fine as laid (81 of 83 on
     the reference board; running them to the centre only added hooks at JP12.3/JP2.1 and a jog at J15.1)"""
     lab = {id(p): f"{f.ref}.{p['num']}" for f in b.fps.values() for p in f.pads}
-    by = defaultdict(list)
+    by, fills = defaultdict(list), defaultdict(list)
     for i, t in enumerate(b.tracks):
         by[(t['net'], t['layer'])].append(i)
+    for fl in b.fills:
+        fills[(fl['net'], fl['layer'])].append(fl)
     out = []
     for i, t in enumerate(b.tracks):
         if not t['net'] or t['net'] in skip or is_arc(t) or t['len'] < 1e-4:
@@ -1100,12 +1115,122 @@ def pad_ends(b, ix, skip, inside=False):
             if not hosts or any(math.dist(E, (p['x'], p['y'])) < 0.05 for p in hosts) or \
                     ix.on_via(t['net'], t['layer'], E, t['w'] / 2) or \
                     any(j != i and pt_seg_dist(E, b.tracks[j]['a'], b.tracks[j]['b']) <= (t['w'] + b.tracks[j]['w']) / 2
-                        for j in by[(t['net'], t['layer'])]):
-                continue
+                        for j in by[(t['net'], t['layer'])]) or \
+                    any(fl['bbox'][0] <= E[0] <= fl['bbox'][2] and fl['bbox'][1] <= E[1] <= fl['bbox'][3] and E in _pidx(b, fl)
+                        for fl in fills[(t['net'], t['layer'])]):
+                continue                             # (last: a pour tie, the end in its own net's fill - Q2.2 GND)
             p = min(hosts, key=lambda p: pad_dist(p, E, True))
             if inside or pad_dist(p, E, True) > -GRAZE:
                 out.append((i, E, lab[id(p)], p))
     return out
+
+
+def _free(b, ix, i, E):
+    """E, an end of track i, is a dead end: no other track end there, no pad or via under its cap"""
+    t = b.tracks[i]
+    return len(ix.ends[(t['net'], t['layer'], q(E))]) == 1 and not ix.on_pad(t['net'], t['layer'], E, t['w'] / 2) \
+        and not ix.on_via(t['net'], t['layer'], E, t['w'] / 2)
+
+
+def cap_joints(b, ix, skip):
+    """[(gap, i, E, j, E2 | None)]: a dead end E of track i whose copper meets another same-net
+    track j only through the end caps - j's end E2 within (wi + wj)/2 (gap: E to E2), or j's
+    side with E outside j's copper (an off-axis T, E2 None; gap: E to j's axis). KiCad joins it
+    and a reviewer sees a gap; chains() also splits the run there, so a jog it sits in is never
+    a lane jog (reference board: Q11-G B.Cu ends 247 um apart held by 3 um of cap, SDA F.Cu 50 um).
+    An end inside j's copper off j's end is a T as KiCad and the eye read it: not listed."""
+    out, seen = [], set()
+    for i, t in enumerate(b.tracks):
+        net, ly = t['net'], t['layer']
+        if not net or net in skip or is_arc(t) or t['len'] < 1e-4:
+            continue
+        for E in (t['a'], t['b']):
+            if not _free(b, ix, i, E):
+                continue
+            ee, tee = [], []
+            for j in ix.trk[(net, ly)]:
+                u = b.tracks[j]
+                d = pt_seg_dist(E, u['a'], u['b'])
+                if j == i or is_arc(u) or d > (t['w'] + u['w']) / 2:
+                    continue
+                E2 = min((u['a'], u['b']), key=lambda e: math.dist(E, e))
+                if math.dist(E, E2) <= d + 1e-6:
+                    ee.append((math.dist(E, E2), j, E2))
+                elif d > u['w'] / 2:
+                    tee.append((d, j, None))
+                else:
+                    break                            # inside j's copper: a T
+            else:
+                g = min(ee or tee, default=None)
+                k = g and frozenset(((i, q(E)), (g[1], q(g[2]) if g[2] else None)))
+                if g and k not in seen:
+                    seen.add(k)
+                    out.append((g[0], i, E, g[1], g[2]))
+    return out
+
+
+def _cross(F, E, G, H):
+    """where lines FE and GH cross, or None when they are parallel"""
+    d1, d2 = (E[0] - F[0], E[1] - F[1]), (H[0] - G[0], H[1] - G[1])
+    den = d1[0] * d2[1] - d1[1] * d2[0]
+    if abs(den) < 1e-9 * math.hypot(*d1) * math.hypot(*d2):
+        return None
+    s = ((G[0] - F[0]) * d2[1] - (G[1] - F[1]) * d2[0]) / den
+    return F[0] + s * d1[0], F[1] + s * d1[1]
+
+
+def close_joint(b, ix, gap, i, E, j, E2):
+    """([(track, end, X)], '') moving the joint's free end(s) along their own lines onto one point
+    X, or (None, why): two ends onto the crossing of their lines when it lies within the joint
+    (only a dead end moves, so a busy E2 must already be the crossing), collinear ends onto E2,
+    an off-axis T's end onto j's axis. Angle-exact: a near-parallel pair a few um apart side to
+    side is left (a snap tilts one, the slant `--micro` used to make). Clear at the real
+    clearance, never a new leg under MICRO."""
+    t, u = b.tracks[i], b.tracks[j]
+    if t['locked']:
+        return None, 'locked'
+    far = lambda tr, e: tr['b'] if q(tr['a']) == q(e) else tr['a']    # noqa: E731
+    F, reach = far(t, E), gap + max(t['w'], u['w']) / 2
+    if E2 is None:
+        X = _cross(F, E, u['a'], u['b'])
+        moves = [(t, E, X)] if X and pt_seg_dist(X, u['a'], u['b']) < 1e-6 and math.dist(X, E) <= reach else None
+        if not moves:
+            return None, "its line meets the other's axis outside the joint: re-lay by hand"
+    else:
+        G = far(u, E2)
+        side = abs((E[0] - F[0]) * (E2[1] - F[1]) - (E[1] - F[1]) * (E2[0] - F[0])) / t['len']   # E2 off t's line
+        X = _cross(F, E, G, E2) or (E2 if side < 1e-3 else None)
+        if X is None:
+            return None, f"runs {side * 1000:.0f} um apart side to side: re-lay by hand (a snap tilts one)"
+        moves = [(tr, e, X) for tr, e in ((t, E), (u, E2)) if math.dist(X, e) > 1e-6]
+        if math.dist(X, E) > reach or math.dist(X, E2) > reach or \
+                any(tr is u for tr, *_r in moves) and (u['locked'] or not _free(b, ix, j, E2)):
+            return None, 'their lines cross outside the joint: re-lay by hand'
+    for tr, e, X in moves:
+        Fk = far(tr, e)
+        if math.dist(Fk, X) < min(MICRO, tr['len']):
+            return None, 'closing it leaves a leg under 0.05 mm'
+        if not Clear(b, tr['net'], tr['layer'], tr['w'], [Fk, e, X], [i, j], 0.01).seg(Fk, X):
+            return None, 'boxed in at the real clearance'
+    return moves, ''
+
+
+def pass_joints(b, skip, sel):
+    """close each cap_joints() joint (close_joint), each in the model before the next; returns
+    [(net, layer, [(end, X)], gap)]"""
+    ix, done, busy = Index(b), [], set()
+    for gap, i, E, j, E2 in cap_joints(b, ix, skip):
+        t = b.tracks[i]
+        if i in busy or j in busy or not sel(t['net'], t['layer'], [E]):
+            continue
+        moves, _why = close_joint(b, ix, gap, i, E, j, E2)
+        for tr, e, X in moves or ():
+            tr['a' if q(tr['a']) == q(e) else 'b'] = X
+            _refresh(tr)
+        if moves:
+            busy |= {i, j}
+            done.append((t['net'], t['layer'], [(e, X) for _tr, e, X in moves], gap))
+    return done
 
 
 def pass_pads(b, skip, sel):
@@ -1189,12 +1314,11 @@ MICRO = 0.05                                        # a segment this short is a 
 
 def pass_micro(b, skip, sel):
     """segments under MICRO mm (`tracks` row `stub`), each in the model before the next:
-    ('merge', net, ly, i, P, Q): both ends join something (a track end, a via centre, a pad) -
-    the tracks ending at Q moved onto P (the via-centre end, else the pad end, else the busier
-    one), the segment deleted, so a join stays a join (on a via centre = the same KiCad nm: a
-    sliver 0.9 um / 1.4 nm long from a centre was deleted and left its neighbour off it,
-    TRACK_NOT_CENTERED_ON_VIA at UART0_RX and R59.1, 2026-10-28) - each moved track no closer to other
-    copper than it was (Exact.slack: it turns a hair, its far side gains up to ~35 um); ('del', ..., i):
+    ('merge', net, ly, i): both ends join something (a track end, a via centre, a pad) - the
+    segment deleted and its neighbours slid along their own lines onto one point (_merge_exact:
+    angles exact, a via centre or pad end never moves), so a join stays a join (on a via centre =
+    the same KiCad nm: a sliver 0.9 um / 1.4 nm long from a centre was deleted and left its
+    neighbour off it, TRACK_NOT_CENTERED_ON_VIA at UART0_RX and R59.1, 2026-10-28); ('del', ..., i):
     zero length, or a free end (or both ends in one via) and the segment wholly under other
     same-net copper (then all it touches its cover touches); ('left', ..., i, why) else. A segment next to one already
     edited waits for the next round"""
@@ -1208,7 +1332,7 @@ def pass_micro(b, skip, sel):
         for e in (t['a'], t['b']):
             oth = [j for j in ix.ends[(net, ly, q(e))] if j != i]
             onv = any(math.dist(e, (v['x'], v['y'])) <= 5e-7 for v in ix.vias[net] if ly in via_layers(v, b.copper))
-            onp = ix.on_pad(net, ly, e)
+            onp = [p for p in ix.pads[net] if on_layer(p, ly) and in_pad(p, e)]
             ends.append((e, oth, onv, onp))
         near = {j for _e, oth, *_r in ends for j in oth}
         if near & busy:
@@ -1225,44 +1349,69 @@ def pass_micro(b, skip, sel):
         if va and vb:
             out.append(('left', net, ly, i, 'both ends on a via centre'))
             continue
-        rank = lambda o, v, p: (v, p, len(o))       # noqa: E731
-        ea, eb = (A, oa, va, pa), (B, ob, vb, pb)
-        tries = [(ea, eb), (eb, ea)] if rank(oa, va, pa) >= rank(ob, vb, pb) else [(eb, ea), (ea, eb)]
-        for (P, _op, _vp, _pp), (Q, oq, vq, pq) in tries:
-            if vq or pq and tries[0][1][0] != Q:     # vacate a via centre never, a pad end only first
-                continue
-            moved = _onto(b, net, ly, oq, P, Q)
-            if moved is not None:
-                for u, na, nb in moved:
-                    u['a'], u['b'] = na, nb
-                    _refresh(u)
-                out.append(('merge', net, ly, i, P, Q))
-                busy |= near | {i}
-                break
+        moved, why = _merge_exact(b, net, ly, ends[0], ends[1])
+        if moved is not None:                        # [] = nothing else ends there: the segment just goes
+            for u, na, nb in moved:
+                u['a'], u['b'] = na, nb
+                _refresh(u)
+            out.append(('merge', net, ly, i))
+            busy |= near | {i}
         else:
-            out.append(('left', net, ly, i, 'moving its neighbours onto either end breaks clearance or tilts one off 0/45/90'))
+            out.append(('left', net, ly, i, why))
     return out
 
 
-def _onto(b, net, ly, oq, P, Q):
-    """[(track, new a, new b)]: the tracks ending at Q moved onto P, each no closer to other copper
-    than it was (Exact.slack; it turns a hair, its far side gains up to ~35 um) and still on
-    0/45/90 (octi, as `tracks` counts off-45) if it was, else None"""
-    moved = []
-    for j in oq:
-        u = b.tracks[j]
-        if u['locked'] or is_arc(u):
-            return None
-        na, nb = (P, u['b']) if q(u['a']) == q(Q) else (u['a'], P)
-        if math.dist(na, nb) < 1e-4 or octi(u['a'], u['b']) and not octi(na, nb):
-            return None                      # tilted off 0/45/90: a 0.05 mm leg at 21 deg (reference board, 2026-10-28)
-        box = (min(na[0], nb[0], u['a'][0], u['b'][0]), min(na[1], nb[1], u['a'][1], u['b'][1]),
-               max(na[0], nb[0], u['a'][0], u['b'][0]), max(na[1], nb[1], u['a'][1], u['b'][1]))
-        ex = Exact(b, net, ly, u['w'], box)
-        if ex.slack(na, nb) < min(0.0, ex.slack(u['a'], u['b'])) - 1e-9 or not ex.soft(na, nb) and ex.soft(u['a'], u['b']):
-            return None
-        moved.append((u, na, nb))
-    return moved
+def _merge_exact(b, net, ly, ea, eb):
+    """([(track, new a, new b)], '') collapsing a micro segment A-B onto one point X with every
+    moved track sliding along its own line, its angle exact (a tolerant 0/45/90 check let 54
+    merges turn long neighbours 0.02-2 deg on the reference board, slants 22 -> 44, 2026-11-13),
+    or (None, why). ea/eb: (end, [tracks there], on a via centre: never moves, [pads it is in]:
+    it moves only within them). X: one end, when every track at the other end points at it
+    (a via or pad end first); else the crossing of the two ends' single tracks within 0.15 mm,
+    unless that leaves a corner over 45 deg (the segment is a chamfer). Each moved track no closer to other copper than it was (Exact.slack: its far side
+    keeps its place, so it only shortens or lengthens)"""
+    T = b.tracks
+    far = lambda j, e: T[j]['b'] if q(T[j]['a']) == q(e) else T[j]['a']     # noqa: E731
+
+    def off(j, e, X):                                # X's distance from track j's line (through its end e)
+        F = far(j, e)
+        return abs((e[0] - F[0]) * (X[1] - F[1]) - (e[1] - F[1]) * (X[0] - F[0])) / max(math.dist(F, e), 1e-9)
+    (A, oa, va, pa), (B, ob, vb, pb) = ea, eb
+    can = lambda v, ps, X: not v and all(in_pad(p, X) for p in ps)     # noqa: E731  (an end may go to X)
+    opts, why = [], ''
+    for (P, vp, pp), (Q, oq, vq, pq) in (((A, va, pa), eb), ((B, vb, pb), ea)):   # the tracks at Q slide onto P
+        if can(vq, pq, P) and all(off(j, Q, P) < 1e-4 for j in oq):
+            opts.append((not (vp or pp), [(j, Q, P) for j in oq]))   # onto a via or pad end first
+    if not (va or vb) and len(oa) == len(ob) == 1:
+        X = _cross(far(oa[0], A), A, far(ob[0], B), B)
+        if X and max(math.dist(X, A), math.dist(X, B)) <= 0.15 and can(va, pa, X) and can(vb, pb, X):
+            th = turn(ang(far(oa[0], A), X), ang(X, far(ob[0], B)))
+            if th < 46:
+                opts.append((True, [(oa[0], A, X), (ob[0], B, X)]))
+            else:
+                why = f"a chamfer: merging at the corner leaves {th:.0f} deg"
+        elif not why:
+            why = f"neighbours {off(oa[0], A, B) * 1000:.0f} um apart side to side (a micro lane jog): a merge tilts one"
+    for _k, mv in sorted(opts, key=lambda o: o[0]):
+        moved = []
+        for j, e, X in mv:
+            u = T[j]
+            na, nb = (X, u['b']) if q(u['a']) == q(e) else (u['a'], X)
+            F = far(j, e)
+            if u['locked'] or is_arc(u) or math.dist(na, nb) < 1e-4 or \
+                    (e[0] - F[0]) * (X[0] - F[0]) + (e[1] - F[1]) * (X[1] - F[1]) <= 0:
+                break                                # locked, gone, or slid back past its far end
+            box = (min(na[0], nb[0], u['a'][0], u['b'][0]), min(na[1], nb[1], u['a'][1], u['b'][1]),
+                   max(na[0], nb[0], u['a'][0], u['b'][0]), max(na[1], nb[1], u['a'][1], u['b'][1]))
+            ex = Exact(b, net, ly, u['w'], box)
+            if ex.slack(na, nb) < min(0.0, ex.slack(u['a'], u['b'])) - 1e-9 or not ex.soft(na, nb) and ex.soft(u['a'], u['b']):
+                why = 'merging breaks clearance'
+                break
+            moved.append((u, na, nb))
+        else:
+            return moved, ''
+    return None, why or ('both ends held (a via centre, or a pad the other end is outside)' if (va or pa) and (vb or pb) else
+                         'a stub off a via centre or pad its neighbour does not point at: a merge tilts it')
 
 
 # ---------------------------------------------------------------- command
@@ -1321,6 +1470,14 @@ def one_pass(path, kind, a, out):
         for net, ly, E, E2 in done[:a.max]:
             print(f"  {net.split('/')[-1]:28s} {ly:6s} {E[0]:.3f},{E[1]:.3f} -> {E2[0]:.3f},{E2[1]:.3f} "
                   f"({math.dist(E, E2) * 1000:.0f} um)")
+        dead, n = write_moved(b, t, orig), len(done)
+    elif kind == 'joints':
+        orig = Board(path)
+        done = pass_joints(b, skip, sel)
+        print(f"joints: {len(done)} joint(s) held only by end caps closed")
+        for net, ly, mv, gap in done[:a.max]:
+            print(f"  {net.split('/')[-1]:28s} {ly:6s} {gap * 1000:4.0f} um joint: "
+                  + ', '.join(f"{e[0]:.3f},{e[1]:.3f} -> {X[0]:.3f},{X[1]:.3f}" for e, X in mv))
         dead, n = write_moved(b, t, orig), len(done)
     elif kind == 'pads':
         orig = Board(path)
@@ -1393,11 +1550,12 @@ def no_project(b, cmd):
 def c_smooth(b, a):
     if no_project(b, 'smooth'):
         return 1
-    kinds = [k for k in ('micro', 'overlaps', 'corners', 'square', 'pads', 'jogs', 'twins') if getattr(a, k, False)] or ['chains']
+    kinds = [k for k in ('micro', 'joints', 'overlaps', 'corners', 'square', 'pads', 'jogs', 'twins')
+             if getattr(a, k, False)] or ['chains']
     if a.overlaps:
         kinds[kinds.index('overlaps') + 1:1] = ['merge']
     if a.all:
-        kinds = ['micro', 'chains', 'overlaps', 'merge', 'corners', 'square', 'pads']
+        kinds = ['micro', 'joints', 'chains', 'overlaps', 'merge', 'corners', 'square', 'pads']
     if os.path.abspath(a.out or b.path) == os.path.abspath(b.path) and a.out:
         print("smooth writes a copy: -o OUT must not be the input"); return 1
     # passes chain through two fixed temp names beside the board (the project's rules must sit

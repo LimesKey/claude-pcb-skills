@@ -1103,10 +1103,12 @@ def main():
     ap.add_argument('--micro', action='store_true', help='for `smooth`: merge segments under 0.05 mm into a neighbour '
                     '(a join stays a join), delete one only when wholly under other same-net copper')
     ap.add_argument('--jogs', action='store_true', help='for `smooth`: collapse lane jogs, moving one blocking free GND via')
+    ap.add_argument('--joints', action='store_true', help='for `smooth`: close a joint held only by end caps (two dead '
+                    'ends apart, or an off-axis T), each end along its own line onto one point')
     ap.add_argument('--twins', action='store_true', help='for `smooth`: two same-net runs side by side into one pad '
                     're-laid as a daisy chain through the nearer start (not in --all)')
     ap.add_argument('--nudge', action='store_true', help='for `smooth --jogs`: also drag one blocking signal via <= 0.3 mm')
-    ap.add_argument('--all', action='store_true', help='for `smooth -o`: chains, overlaps (+ merge), corners, square, pads, repeated until a round '
+    ap.add_argument('--all', action='store_true', help='for `smooth -o`: micro, joints, chains, overlaps (+ merge), corners, square, pads, repeated until a round '
                                                       'changes nothing; for `tracks`: include RF/USB/diff-pair nets; '
                                                       'for `refdes`: every visible designator, not only flagged ones; '
                                                       'for `congest`: every net\'s pad MST, no tracks (the placement '
@@ -1116,8 +1118,8 @@ def main():
                     'neighbours (each end a two-track node or a via, never a pad) takes their width where clear')
     ap.add_argument('--uniform-power', action='store_true', help='for `widen`: per power run, also raise every '
                     'segment to the run\'s widest where clear (never narrows); reports the width steps left')
-    ap.add_argument('--kind', default='', help='for `tracks`: only these rows: acute,90,off45,neck,stub,pad,overlap,twin,'
-                                               'jog,detour,inpour,inpourpwr,deadend')
+    ap.add_argument('--kind', default='', help='for `tracks`: only these rows: acute,90,off45,neck,stub,pad,anchor,joint,'
+                                               'overlap,twin,jog,detour,inpour,inpourpwr,deadend,zonepts,zonedup,cleanup')
     ap.add_argument('--show', action='store_true', help='for `refdes`: also place (and unhide) hidden designators')
     ap.add_argument('--size', type=float, default=None, help='for `refdes`: designator text height, mm (default: kept, >= the fab minimum); '
                     'for `pinlabels`/`label`: text height (default 1, >= the fab minimum)')

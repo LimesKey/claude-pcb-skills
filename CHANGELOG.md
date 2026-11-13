@@ -3,6 +3,58 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kpcb - a `tracks` `ends at a pad edge ... fix: smooth --pads` row named a fix the pass then
+      declined ("0 of 2"): GND's stub from Q2.2's centre ends in its own pour (a pour tie, not a graze). Done:
+      `pad_ends` (the rows and `smooth --pads`) skips an end inside its own net's saved fill, and a listed row is
+      priced when shown (the pass run once on a fresh copy): PPHV at U8.9's custom pad now reads `smooth --pads
+      finds no clear way onto the centre: by hand`. 2026-11-13.
+- [x] kicad-review/kpcb - `smooth --micro` tilted neighbours by fractions of a degree (its 0/45/90 check tolerated a
+      30-50 um end move on a long track): 54 merges took the board's 0.02-2 deg slants 22 -> 44. Done: the merge is
+      angle-exact - the neighbours slide along their own lines onto one end (a via centre never moves, a pad end
+      only within its pad) or onto where their lines cross within 0.15 mm; a stub off a via centre its neighbour
+      does not point at, a chamfer whose merge leaves a 90 and a micro lane jog are left and say so. Reference
+      board (HEAD): 29 merged + 10 deleted (was 58 + 10), slants 22 -> 22, kdrc 0 new, unconnected 2 -> 2.
+      2026-11-13.
+
+- [x] kicad-review/kpcb - `tracks --kind deadend` / `ripup --deadend` missed a dead power band: a `route +BATT` band
+      round a 39 mm B.Cu run, hanging off one 4-via cluster in a pad and serving no pad, listed only as the 2.2 mm
+      stub past it; and `ripup` left -BATT's first 0.13 mm segment (bb0f2c8e, inside the trunk's end cap). Done
+      (`dead_copper`): a via cluster (neighbours <= 1 mm, all within 2 mm, joining exactly the same copper) is one
+      node, so a pour off it is a leaf, not a cycle through the pad and the In2 pour its barrels also join; a
+      parallel leaf (a track weaving out of the band and back) lives while its node does but no longer holds that
+      node up; a script band (`route`/`fatten` zone) is never a pad's heatsink; a join piece left on the attach node
+      that meets only the branch goes with it. Reference board (HEAD): one 47.1 mm, 57 mm2 row with zone cba8f8d8,
+      -BATT 19.2 mm with bb0f2c8e; `ripup --deadend` then 32 items, refill + kdrc 0 new, unconnected 2 -> 2; the
+      current board's rows unchanged (BT1-- pour islands stitched across 4 mm stay live). 2026-11-13.
+- [x] kicad-review/kpcb - `tracks` off-45 tolerance (0.3 deg) hid sub-degree slants on long runs (I2C_HOST_SDA
+      10.35 mm at 0.28 deg, 50 um of drift). Done: `octi` also wants the far end within 10 um of the 0/45/90 line
+      (`tracks` row `10.35 mm, end 50 um off 90 deg`), so `smooth` now folds such a drift into a neighbouring leg
+      (3V3_GNSS 37 um, +3V3_EXT 14 um). Found on
+      the way: the chain DP itself laid crooked runs (GPIO_10 three segments -> one 32.8 mm at 89.74 deg, 149 um of
+      drift) and doglegs with a leg under 0.05 mm (-BATT: a 42 um leg, a new `stub` row): both refused now;
+      `--square` dragged a co-track at the moved end off 0/45/90 (never now) and on a tie moved the end in the
+      smaller pad (SDA: off D29.3's anchor; now the bigger pad's end moves). `zoneshape --redraw` keeps the angle-only
+      test (a knee for a drift is a < 0.3 mm edge). 2026-11-13.
+- [x] kicad-review/kpcb - `tracks` had no row for a joint held only by overlapping copper (two same-net dead ends
+      sharing no vertex, Q11-G B.Cu 247 um apart held by 3 um of cap; SDA 50 um), which also splits the chain so
+      the jog in it is never a lane jog; and its follow-up, no writer for them. Done: `joint` rows (end, gap,
+      priced when shown: `fix: smooth --joints` or why not) and `smooth --joints` (in `--all` after `--micro`),
+      angle-exact: both dead ends along their own lines onto where they cross, collinear ends end to end, an
+      off-axis T onto the other's axis; a near-parallel pair is left (a snap tilts one); only a dead end moves,
+      `Clear`, no leg < 0.05 mm, moves bounded by the joint (gap + w/2), not 0.15 mm: Q11-G's in-line close is
+      0.247. Reference board (HEAD): 10 rows, 3 closed (one under its pour), kdrc 0 new; the rest are runs
+      5-35 um apart side to side (re-lay by hand) or a 1.15 mm -BATT joint whose close leaves a 0.05 mm leg.
+      2026-11-13.
+- [x] kicad-review/kpcb - `tracks` never listed a signal end inside a small pad but off its anchor (folded into
+      "more end inside their pad off centre: fine"). Done: `anchor` rows - a signal net's dead end inside a pad
+      <= 1.5 mm across (custom primitives counted), >= 10 um off its anchor, largest first, fix by hand; a bend
+      vertex inside the pad (two tracks meet: the route goes on) is not an end, and an end whose cap also grazes the
+      track's own via (Q11-G at U8.24) still counts. Reference board (HEAD): 137 rows, U8.24 45 um and the SDA spur
+      450 um off D29.3 among them. 2026-11-13.
+- [x] kicad-review/kdoc - no way to drop cache slots whose source file was deleted: `list` kept them and unscoped
+      `grep` hit them. Done: `kdoc.py prune [-d NAME]` removes them; `list` tags them `source gone`, and a grep with
+      hits in one names it. 2026-11-13.
+
 - [x] kicad-review/kpcb - the heavy writers were slow on the reference board (17 MB): smooth 46 s, widen 17 s, stitch
       GND 15 s, reroute 230 s. Done: route's Grid rejects pads and tracks on raw coordinates before any bbox (exact:
       a pad's rotated half-extent is <= sx/2 + sy/2), fill_rows assigns slices, astar keeps best cost in per-layer

@@ -36,6 +36,7 @@ Usage:
   kdoc.py text NEOM9N -p 74-76                several pages (-p also filters grep/near)
   kdoc.py toc esp32c6                         heading-ish lines per page
   kdoc.py list                                cached docs, page counts, image support
+  kdoc.py prune                               drop cached docs whose source file is gone
 
 Searching is line-wrap insensitive by default: whitespace is collapsed before
 matching, so a phrase broken across two lines in the PDF still hits. Use --raw
@@ -66,6 +67,12 @@ def _held(name):
         return os.path.realpath(open(os.path.join(CACHE, name, '.source')).read().split('|')[0])
     except OSError:
         return None
+
+def _gone(name):
+    """A slot whose source file was deleted or moved, or that never recorded one (an
+    extraction that died before writing .source): grep still searches it."""
+    held = _held(name)
+    return not held or not os.path.exists(held)
 
 def cache_dir(path):
     """The cache slot for path: slug(path), unless that slot holds a different file
@@ -545,7 +552,8 @@ def c_list(a):
         src = ''
         if os.path.exists(os.path.join(dd, '.source')):
             src = open(os.path.join(dd, '.source')).read().split('|')[0]
-        print(f"  {d:<38} {len(pages(dd)):>4} pages  {fmt_tag(dd):<7} {src}")
+        print(f"  {d:<38} {len(pages(dd)):>4} pages  {fmt_tag(dd):<7} {src}"
+              + ('  (source gone: `kdoc.py prune`)' if _gone(d) else ''))
     if any(os.path.exists(os.path.join(CACHE, d, '.scraped')) for d in docs(a.doc)):
         print("\n  note: doc(s) above named *.pdf but tagged text are scraped text, "
               "not real PDFs - grep/text work, no page images exist (re-upload the "
@@ -599,11 +607,23 @@ def c_grep(a):
               "try a shorter pattern, drop -d, or --raw for column/table layouts" + hint)
         return 1
     else:
+        gone = sorted({d for d, _ in per if _gone(d)})
         print(f"\n{total} hits across {len({d for d, _ in per})} doc(s), "
               f"{len(per)} page(s)"
               + (f"; per-doc display capped at {a.max}, use -m/--count" if any(
                   v > a.max for v in
-                  {d: sum(c for (dd_, p), c in per.items() if dd_ == d) for d, _ in per}.values()) else ""))
+                  {d: sum(c for (dd_, p), c in per.items() if dd_ == d) for d, _ in per}.values()) else "")
+              + (f"\n  {', '.join(gone)}: source file gone (deleted or moved); `kdoc.py prune` drops "
+                 "such slots" if gone else ""))
+
+def c_prune(a):
+    """Drop the cache slots whose source is gone (-d: only matching docs). A moved file
+    re-indexes on its next `index` or first `-d` use."""
+    gone = [d for d in docs(a.doc) if _gone(d)]
+    for d in gone:
+        print(f"  removed {d:<38} {_held(d) or '(no source recorded)'}")
+        shutil.rmtree(os.path.join(CACHE, d), ignore_errors=True)
+    print(f"pruned {len(gone)} slot(s) whose source is gone; {len(docs(a.doc))} kept")
 
 def c_near(a):
     ensure(a.doc)
@@ -735,7 +755,7 @@ def c_toc(a):
                     break
 
 CMDS = {'index': c_index, 'grep': c_grep, 'near': c_near, 'page': c_page,
-        'text': c_text, 'list': c_list, 'toc': c_toc}
+        'text': c_text, 'list': c_list, 'toc': c_toc, 'prune': c_prune}
 
 def main():
     ap = argparse.ArgumentParser(add_help=False)

@@ -4,7 +4,7 @@ the pieces the copper is really in; `ampacity --from --to` walks the path
 between two pads with the pours as ideal conductors (their necks are not
 measured, and the output says so)."""
 import math
-from collections import defaultdict
+from collections import defaultdict, Counter
 from kpcb_board import _pidx, pt_seg_dist, xf, bbox, RHO_CU
 
 CELL = 1.0                                   # spatial hash, mm
@@ -520,6 +520,7 @@ def _key_xy(k):
 PARALLEL = 0.5                                       # a branch meeting one pour this far apart is in parallel, mm
 HEATSINK = 1.5                                       # a pad-less pour joined this close to a pad is its heatsink, mm
 MICRO = 0.05                                         # a segment this short is a join, never a conductor, mm
+VIA_STEP, VIA_SPAN = 1.0, 2.0                        # a via cluster: neighbours this close, all within this, mm
 
 
 def dead_copper(b, net, C=None, terminal=None):
@@ -538,8 +539,12 @@ def dead_copper(b, net, C=None, terminal=None):
     parallel through two vias, a band round it) is dead when it hangs off ONE point, and a pour
     stitched by two vias on a through-going path is a parallel conductor, not dead, as is a run
     that leaves a pour and meets it again > PARALLEL mm away, or a track into a pad the pour
-    already joins (a pour is one node: the in-pour census judges that copper); a pour
-    joined only within HEATSINK mm of a pad (thermal vias) is its heatsink, never dead. A
+    already joins (a pour is one node: the in-pour census judges that copper) - such a parallel
+    block lives while its node does, but never holds that node up; a via cluster (VIA_STEP,
+    VIA_SPAN) joining the same copper is one node, so a band off it hangs off one point; a pour
+    joined only within HEATSINK mm of a pad (thermal vias) is its heatsink, never dead, unless
+    it is a script band (`route`/`fatten` zone name); a join piece left on the attach node (both
+    ends in the trunk's cap) that meets only the branch goes with it. A
     segment under MICRO mm is a join, not a conductor: it is left out (the ends it joins still
     join by Copper's end tolerance), so a via held on a layer only by a 14 um dot whose cap
     grazes the next track is dead, the dot with it (VCC_RF ee220847, 2026-10-27). Reads the
@@ -550,10 +555,39 @@ def dead_copper(b, net, C=None, terminal=None):
     C = C or Copper(SimpleNamespace(fps=b.fps, vias=b.vias, fills=b.fills, copper=b.copper,
                                     _pidx=b.__dict__.setdefault('_pidx', {}),    # the board's fill indexes
                                     tracks=[t for t in b.tracks if t['net'] == net and all(t is not m for m in micro)]), net)
-    R = C.ideal.find
+    R0 = C.ideal.find
     size = defaultdict(int)
     for k in list(C.ideal):
-        size[R(k)] += 1
+        size[R0(k)] += 1
+    # a via cluster - vias side by side (<= VIA_STEP apart, all within VIA_SPAN) joining exactly
+    # the same copper on every layer where something meets them - is one joint, its barrels in
+    # parallel: one node, so a pour hanging off it is a leaf off it, not a cycle through it (a
+    # `route +BATT` band 39 mm off one 4-via cluster in a pad was never listed, reference board
+    # 2026-11-13). Vias spread wider stay apart: a pour stitched across its area (BT1-- islands)
+    meets = defaultdict(set)
+    for kl, _kv, k in C.vedges:
+        if size[R0(kl)] > 1:
+            meets[k].add(R0(kl))
+    same = defaultdict(list)
+    for k, ns in meets.items():
+        if len(ns) > 1:
+            same[frozenset(ns)].append(k)
+    vrep = {}
+    for ks in same.values():
+        g = UF()
+        for n, k in enumerate(ks):
+            for k2 in ks[n + 1:]:
+                if math.dist(*((C.vias[x]['x'], C.vias[x]['y']) for x in (k, k2))) <= VIA_STEP:
+                    g.union(k, k2)
+        cl = defaultdict(list)
+        for k in ks:
+            cl[g.find(k)].append(k)
+        for grp in cl.values():
+            xy = [(C.vias[k]['x'], C.vias[k]['y']) for k in grp]
+            if len(grp) > 1 and max(math.dist(p, q) for p in xy for q in xy) <= VIA_SPAN:
+                vrep.update({R0(('via', k)): R0(('via', grp[0])) for k in grp})
+    R = lambda key: vrep.get(R0(key), R0(key))      # noqa: E731
+    zname = {z.uuid: z.name or '' for z in getattr(b, 'zones', ())}
     term = {R(('pad', i)) for i, (f, p) in enumerate(C.pads) if terminal is None or terminal(f, p)}
     E, loops = [], defaultdict(list)                 # (u, v, kind, obj, mm, key u, key v)
     for k0, k1, t, L in C.edges:
@@ -616,6 +650,10 @@ def dead_copper(b, net, C=None, terminal=None):
         padsof[R(('pad', i))].append(p)
     for j, fl in enumerate(C.fills):
         fill_lys[R(('fill', j))].add(fl['layer'])
+    vgroups = set(vrep.values())
+    for k in range(len(C.vias)):                     # a via cluster sits in the pads its vias join
+        if R(('via', k)) in vgroups and R(('via', k)) not in padsof:
+            padsof[R(('via', k))] = list({id(p): p for n in meets[k] for p in padsof[n]}.values())
 
     def parallel(i, w):
         """block i meets node w (a pour, or pads a pour joins) at two of its pads, at a pad and
@@ -634,7 +672,7 @@ def dead_copper(b, net, C=None, terminal=None):
             return True                              # stitching two layers' pours (a THT pad made them one node)
         tp = list({(round(x, 2), round(y, 2)) for (x, y), _h in pts})
         sp = max((math.dist(p, q) for p in tp for q in tp), default=0.0)
-        if w not in fillv or sp <= PARALLEL:
+        if w not in fillv and w not in vgroups or sp <= PARALLEL:
             return False
         lines = [(p, q) for n, p in enumerate(tp[:12]) for q in tp[n + 1:12]]
         D = max(1.0, 0.3 * sp)
@@ -642,19 +680,29 @@ def dead_copper(b, net, C=None, terminal=None):
         body += [q for j, fl in enumerate(C.fills) if R(('fill', j)) in bv[i] and R(('fill', j)) != w
                  for q in fl['pts'][::max(1, len(fl['pts']) // 200)]]
         return all(min(pt_seg_dist(q, a, c) for a, c in lines) <= D for q in body)
-    alive, changed = set(range(len(blocks))), True
+    alive, changed, sat = set(range(len(blocks))), True, {}
     while changed:
         changed = False
-        for i in sorted(alive):
+        for i in sorted(alive - set(sat)):
             att = {w for w in bv[i] if len(vb[w]) > 1}
             pads = {w for w in bv[i] if w in term} - att
             if len(att) == 1 and not pads and parallel(i, next(iter(att))):
-                continue                             # pad to pad through one pour's node, or back into it
-            if len(att) <= 1 and not pads or not att and len(pads) < 2:
+                sat[i] = w = next(iter(att))         # pad to pad through one pour's node, or back into it: alive
+                vb[w].discard(i)                     # while that node is, never what holds it up (a track
+                changed = True                       # weaving out of a dead band and back kept the whole
+            elif len(att) <= 1 and not pads or not att and len(pads) < 2:   # band, reference board 2026-11-13)
                 alive.discard(i)
                 for w in bv[i]:
                     vb[w].discard(i)
                 changed = True
+    held, grow = {w for i in alive - set(sat) for w in bv[i]} | term, True
+    while grow:                                      # a live satellite holds its own nodes (and theirs)
+        grow = False
+        for i, w in sat.items():
+            if w in held and not bv[i] <= held:
+                held |= bv[i]
+                grow = True
+    alive -= {i for i, w in sat.items() if w not in held}
     keep_v = {w for i in alive for w in bv[i]} | term
     dead = sorted(e for i in set(range(len(blocks))) - alive for e in blocks[i])
     if not dead:
@@ -692,13 +740,21 @@ def dead_copper(b, net, C=None, terminal=None):
                         at, off = touch[-1][1], _label(C, R, w, touch[-1][1], k[1] if k[0] == 'pt' else k[-1])
         vs = {w for e in es for w in E[e][:2]} - keep_v
         fills = [fl for j, fl in enumerate(C.fills) if R(('fill', j)) in vs]
-        if fills and touch and all(any(pad_dist(p, xy) <= HEATSINK for p in padsof[w]) for w, xy in touch):
+        band = any(zname.get(fl.get('zone'), '').startswith(('route ', 'fatten ')) for fl in fills)
+        if fills and touch and not band and all(any(pad_dist(p, xy) <= HEATSINK for p in padsof[w]) for w, xy in touch):
             continue                                 # a pour hanging off a pad (vias in or beside it): its heatsink
-        if not trk and not vias and sum(fl['area'] for fl in fills) < 4:
+        if not trk and not vias and sum(fl['area'] for fl in fills) < 4:  # (a script band poured round a track never is)
             continue                                 # a via's own patch of pour
         for w in vs:
             for t, L in loops[w]:
                 trk[id(t)] = (t, trk.get(id(t), (t, 0.0))[1] + L)
+        tips = Counter(_q(e) for t in C.tracks for e in (t['a'], t['b']))
+        mine = {_q(e) for o, _L in trk.values() for e in (o['a'], o['b'])}
+        for w in {w for w, _xy in touch}:            # a join piece left on the attach node (both ends in the
+            for t, L in loops[w]:                    # trunk's end cap) that meets only this branch goes with it
+                if id(t) not in trk and any(_q(e) in mine and tips[_q(e)] == 2 for e in (t['a'], t['b'])):
+                    trk[id(t)] = (t, L)              # (-BATT bb0f2c8e outlived its branch, reference board)
+                    pieces[id(t)] = [(None, None, True)]
         for t in micro:                              # a join left out of the graph: with its dead via
             if any(math.dist(e, (v['x'], v['y'])) < v['size'] / 2 for v in vias.values() for e in (t['a'], t['b'])):
                 trk[id(t)] = (t, t['len'])

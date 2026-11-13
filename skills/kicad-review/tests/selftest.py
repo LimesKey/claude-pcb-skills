@@ -1240,15 +1240,49 @@ def graze_board(d):
     """10 x 6 beside typed_board's rules: net G a 0.2 track at y=1 that only grazes TP7 (1,1)
     and stops 0.2 short of TP8's centre (8,1), 0.1 inside its edge: left as laid; net K grazes TP10 (1,4) and TP11 (8,4), with a
     stub from the TP10 graze to its centre (that pad's only entry: no loop); net H ends 0.08
-    left of TP12 (5,5.5)'s corner, off its line (a stub, not a slide)"""
+    left of TP12 (5,5.5)'s corner, off its line (a stub, not a slide); net J TP13 (1,2.5) ->
+    TP14 (8,2.5) in two runs whose ends 4.5 and 4.65 meet only through their caps; net Z a
+    stub from TP15 (9.3,5.3)'s centre to 4.95, just past its edge but in Z's pour: a pour tie"""
     return _tab_board(d, 'g.kicad_pcb', 10, 6,
                       _tab_fp('TP7', 1, 1, [('1', 0, 0, .6, .6, 'G')], (.4, .4))
                       + _tab_fp('TP8', 8, 1, [('1', 0, 0, .6, .6, 'G')], (.4, .4))
                       + _tab_fp('TP10', 1, 4, [('1', 0, 0, .6, .6, 'K')], (.4, .4))
                       + _tab_fp('TP11', 8, 4, [('1', 0, 0, .6, .6, 'K')], (.4, .4))
                       + _tab_fp('TP12', 5, 5.5, [('1', 0, 0, .6, .6, 'H')], (.4, .4))
+                      + _tab_fp('TP13', 1, 2.5, [('1', 0, 0, .6, .6, 'J')], (.4, .4))
+                      + _tab_fp('TP14', 8, 2.5, [('1', 0, 0, .6, .6, 'J')], (.4, .4))
                       + _tseg(1.35, 1, 7.8, 1, 'G') + _tseg(1.35, 4, 7.65, 4, 'K') + _tseg(1.35, 4, 1, 4, 'K')
-                      + _tseg(3, 5.2, 4.62, 5.2, 'H'))
+                      + _tseg(3, 5.2, 4.62, 5.2, 'H') + _tseg(1, 2.5, 4.5, 2.5, 'J') + _tseg(4.65, 2.5, 8, 2.5, 'J')
+                      + _tab_fp('TP15', 9.3, 5.3, [('1', 0, 0, .6, .6, 'Z')], (.4, .4)) + _tseg(9.3, 5.3, 9.3, 4.95, 'Z')
+                      + _gzone('F.Cu', rect(8.9, 4.5, 9.9, 5.0), rect(8.9, 4.5, 9.9, 5.0), 'tie', net='Z', uid='ztie'))
+
+
+def drift_board(d):
+    """typed rules, 10 x 7: net D TP1 (1,2) -> (7,2.03) -> 45 -> TP2 (9,4.03), its first leg
+    0.29 deg off 0 (30 um of drift: off-45 though under 0.3 deg); net E one 7 mm segment TP3
+    (1,5) -> TP4 (8,5.03), as crooked, between two pads: its only dogleg has a 42 um leg"""
+    return _tab_board(_typed_dir(os.path.join(d, 'drift')), 't.kicad_pcb', 10, 7,
+                      _tab_fp('TP1', 1, 2, [('1', 0, 0, .6, .6, 'D')]) + _tab_fp('TP2', 9, 4.03, [('1', 0, 0, .6, .6, 'D')])
+                      + _tab_fp('TP3', 1, 5, [('1', 0, 0, .6, .6, 'E')]) + _tab_fp('TP4', 8, 5.03, [('1', 0, 0, .6, .6, 'E')])
+                      + _tseg(1, 2, 7, 2.03, 'D') + _tseg(7, 2.03, 9, 4.03, 'D') + _tseg(1, 5, 8, 5.03, 'E'))
+
+
+def band_board(d):
+    """Net Q: TP6 (1,2) -> TP5 (4,2, 1.6 x 1.2) on F; two vias in TP5 (3.6 and 4.4) carry a
+    `route Q` B.Cu band (4..8 x 1.6..2.4) round a B run to 7.6, with a B track weaving out of
+    the band (y 2.9) and back: the band hangs off ONE via cluster, dead, weave and all. Net R:
+    TP7 (1,7) -> (5,7) w1 -> TP8 (5,9); a 0.12 mm w0.8 piece from that corner into its end cap,
+    then a dead branch to (8,7): the piece goes with the branch"""
+    return _tab_board(d, 'band.kicad_pcb', 10, 10,
+                      _tab_fp('TP6', 1, 2, [('1', 0, 0, .6, .6, 'Q')]) + _tab_fp('TP5', 4, 2, [('1', 0, 0, 1.6, 1.2, 'Q')], (1, .8))
+                      + _tseg(1, 2, 4, 2, 'Q', 0.3) + _tvia(3.6, 2, 'Q') + _tvia(4.4, 2, 'Q')
+                      + _tseg(4.4, 2, 7.6, 2, 'Q', 0.3, 'B.Cu', uid='qrun')
+                      + _tseg(5, 2.2, 5.5, 2.9, 'Q', 0.2, 'B.Cu') + _tseg(5.5, 2.9, 6.5, 2.9, 'Q', 0.2, 'B.Cu')
+                      + _tseg(6.5, 2.9, 7, 2.2, 'Q', 0.2, 'B.Cu')
+                      + _gzone('B.Cu', rect(4, 1.6, 8, 2.4), rect(4, 1.6, 8, 2.4), 'route Q', net='Q', uid='zq')
+                      + _tab_fp('TP7', 1, 7, [('1', 0, 0, .6, .6, 'R')]) + _tab_fp('TP8', 5, 9, [('1', 0, 0, .6, .6, 'R')])
+                      + _tseg(1, 7, 5, 7, 'R', 1.0) + _tseg(5, 7, 5, 9, 'R', 1.0)
+                      + _tseg(5, 7, 5.12, 7, 'R', 0.8, uid='rpiece') + _tseg(5.12, 7, 8, 7, 'R', 0.8, uid='rdead'))
 
 
 def drag_board(d):
@@ -1924,6 +1958,17 @@ def main(pick=(), listing=False, keep=False):
                   ["pads: 3 of 3 trace end(s)", "TP12.1", "wrote "]))
     CASES.append(("kpcb smooth --pads result", ['kpcb.py', T('typed/g2.kicad_pcb'), 'copper', '0,0,10,6'], 0,
                   ["1.000,1.000 -> 7.800,1.000", "8.000,4.000", "4.700,5.200 -> 5.000,5.500"]))
+    CASES.append(("kpcb tracks anchor + joint", ['kpcb.py', gb, 'tracks', '--kind', 'anchor,joint'], 0,
+                  ["ends off a small pad anchor    1 visible", "200 um off TP8.1", "150 um end to end    fix: smooth --joints"]))
+    CASES.append(("kpcb smooth --joints", ['kpcb.py', gb, 'smooth', '--joints', '-o', T('typed/g3.kicad_pcb')], 0,
+                  ["joints: 1 joint(s) held only by end caps closed", "150 um joint: 4.500,2.500 -> 4.650,2.500"]))
+    CASES.append(("kpcb smooth --joints result", ['kpcb.py', T('typed/g3.kicad_pcb'), 'tracks', '--kind', 'joint'], 0,
+                  ["joined only by end caps    0 visible"]))
+    drb = drift_board(tmp.name)                  # 30 um of drift under 0.3 deg is off-45; E's only dogleg has a 42 um leg
+    CASES.append(("kpcb tracks off45 drift", ['kpcb.py', drb, 'tracks', '--kind', 'off45'], 0,
+                  ["off-45 segments           2 visible", "6.00 mm, end 30 um off 0 deg", "7.00 mm, end 30 um off 0 deg"]))
+    CASES.append(("kpcb smooth drift", ['kpcb.py', drb, 'smooth', '-o', T('drift/t2.kicad_pcb')], 0,
+                  ["chains: 2, re-laid 1 ", "2->2 segs  8.83->8.84 mm  at 1.00,2.00"]))
     CASES.append(("kpcb view --tracks", ['kpcb.py', sb, 'view', 'TP3', 'TP4', '--tracks', '--net', 'S', '-o',
                                          T('st.png')], 0, ["tracks/pads/vias, no fills", "S green"]))
     db = drag_board(tmp.name)
@@ -2260,6 +2305,8 @@ def main(pick=(), listing=False, keep=False):
                    "6 item(s) deleted (0 more pruned as dangling), 1 cut back, 1 zone(s)"]))
     CASES.append(("kpcb ripup --deadend result", ['kpcb.py', os.path.join(tmp.name, 'dead2.kicad_pcb'), 'tracks', '--kind', 'deadend'], 0,
                   ["dead branches (no pad)    0 visible"]))
+    CASES.append(("kpcb tracks deadend band off a via cluster", ['kpcb.py', band_board(tmp.name), 'tracks', '--kind', 'deadend'], 0,
+                  ["B.Cu 5.9 mm, 2 via, 3 mm2 pour off TP5.1", "qrun", "zone zq", "rdead rpiece"]))
     CASES.append(("kpcb unhook leaves no cycle", ['kpcb.py', db, 'unhook', 'TP4', '-o', os.path.join(tmp.name, 'dead3.kicad_pcb')], 0,
                   ["unhook: 1 item(s) selected, 5 more pruned as dangling", "4 trk  2 via"]))
     CASES.append(("kpcb fatten/stitch skip dead", ['kpcb.py', db, 'fatten', 'P', '--layers', 'B.Cu', '--minw', '0.2', '--width', '2', '-o',
@@ -2297,7 +2344,7 @@ def main(pick=(), listing=False, keep=False):
                     + _tseg(6, 2, 8, 2, 'K') + _tseg(8, 2, 8, 2.04, 'K') + _tseg(8, 2.04, 10, 2.04, 'K'))
     CASES.append(("kpcb smooth --micro keeps 0/45/90", ['kpcb.py', mk, 'smooth', '--micro', '-o', T('mk/m2.kicad_pcb')], 0,
                   ["micro: 0 segment(s) < 0.05 mm merged into a neighbour, 0 deleted (under other copper), 1 left",
-                   "tilts one off 0/45/90"]))
+                   "neighbours 40 um apart side to side (a micro lane jog): a merge tilts one"]))
     vc = _tab_board(tmp.name, 'viacut.kicad_pcb', 20, 10,          # the strap overshoots a live via 0.1 off its line
                     _tab_fp('TP1', 2, 5, [('1', 0, 0, 1, 1, 'P')], (.6, .6)) + _tab_fp('TP2', 16, 5.1, [('1', 0, 0, 1, 1, 'P')], (.6, .6))
                     + _tseg(2, 5, 10, 5, 'P', 0.3) + _tvia(8, 5.1, 'P') + _tseg(8, 5.1, 14, 5.1, 'P', 0.3, 'B.Cu')
@@ -2635,8 +2682,13 @@ def main(pick=(), listing=False, keep=False):
         open(xa, 'w').write('y\n')
         n1 = len(kdoc.pages(kdoc.extract(xa)))
     ok14 &= (n3, n1) == (3, 1)
+    # prune drops only the slot whose source was deleted
+    os.remove(os.path.join(tmp.name, 'kdb', 'X1.txt'))
+    with contextlib.redirect_stdout(io.StringIO()):
+        kdoc.c_prune(argparse.Namespace(doc=None))
+    ok14 &= kdoc.docs() == ['X1_txt']
     fails += check(ok14, f"kdoc same-basename slots {os.path.basename(ka)}, {os.path.basename(kb)}; -p sets; "
-          "a replaced source drops stale pages")
+          "a replaced source drops stale pages; prune drops the deleted one")
     # kcommon.parse_args: dash + uppercase tokens that are not options are values;
     # real options, attached short values and negative numbers are untouched.
     # kicad_running sees a KiCad lock file in the project dir.

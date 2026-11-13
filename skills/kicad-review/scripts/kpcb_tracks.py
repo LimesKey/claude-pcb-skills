@@ -1,9 +1,11 @@
 """kpcb.py `tracks`, `widen` and `loops`: the quality of routed copper, and two clean-ups.
 
 `tracks [--kind K] [--view OUT.png]` is a census of what a reviewer sees: corners of 46-90
-deg and acute ones at nodes of two same-net tracks, off-45 segments, width steps mid-run,
-segments under 0.05 mm, dead-end traces that stop at a pad edge instead of its centre
-(`smooth --pads`), two runs joined only through a pad's copper (`smooth --overlaps`), two
+deg and acute ones at nodes of two same-net tracks, off-45 segments (octi: > 0.3 deg or a far end
+> 10 um off the line), width steps mid-run, segments under 0.05 mm, dead-end traces that stop
+at a pad edge instead of its centre (`smooth --pads`), signal ends inside a small pad off its
+anchor (by hand), ends joined only by their caps (`smooth --joints`), two runs joined only
+through a pad's copper (`smooth --overlaps`), two
 same-net runs side by side into one pad (`smooth --twins`), plane-net (GND) tracks lying wholly inside their own saved fill (`ripup
 --inpour` deletes them). Each is dropped when it is hidden under the UNION of other same-net
 copper (pads, vias, wider tracks, fills), a corner also when one leg lies wholly in the other's cap. Listed rows say why `smooth` left them: on a pad
@@ -39,7 +41,7 @@ from kpcb_move import via_layers, is_arc
 from kpcb_edit import PcbText, tear_edits, num, prune, _rip_out
 from kpcb_copper import pad_dist
 from kpcb_smooth import (Index, Exact, chains, covered, leg_in_cap, cut_corner, skipped, in_pad, on_layer, octi, ang, turn,
-                         q, RES, GRAZE, pad_ends, pad_joins, twins, no_project)
+                         q, RES, GRAZE, pad_ends, pad_joins, twins, no_project, cap_joints, close_joint)
 
 
 # ---------------------------------------------------------------- tracks (census)
@@ -173,6 +175,39 @@ def gate(b, out, cmd):
         print(f"  pruned {len(whole)} track(s)/via(s) from {out}")
 
 
+SMALL_PAD = 1.5                                      # a pad this long or less wants its trace ends on the anchor
+
+
+def anchor_ends(b, ix, skip):
+    """[(offset, track idx, end, 'REF.PIN')], largest first: a signal trace's dead end (no other
+    track end there, not on a via) inside a pad <= SMALL_PAD across (custom primitives counted),
+    >= 10 um off its anchor and deeper in than a `pad` row's graze. KiCad joins it as laid; a
+    designer lands every end on the anchor (Q11-G 45 um off U8.24, an SDA spur 0.45 mm off D29.3,
+    reference board). A bend vertex inside the pad (two tracks meet) is the route going on, not an end."""
+    from kpcb_route import _planes
+    planes = {n for n, _l in _planes(b)}
+    lab = {id(p): f"{f.ref}.{p['num']}" for f in b.fps.values() for p in f.pads}
+
+    def size(p):
+        us = [-p['sx'] / 2, p['sx'] / 2] + [u for poly in p['prims'] for u, _v in poly]
+        vs = [-p['sy'] / 2, p['sy'] / 2] + [v for poly in p['prims'] for _u, v in poly]
+        return max(max(us) - min(us), max(vs) - min(vs))
+    out = []
+    for i, t in enumerate(b.tracks):
+        net = t['net']
+        if not net or net in skip or net in planes or is_arc(t) or t['len'] < 1e-4 or \
+                'PWR' in (b.netclass(net) or '').upper() or rail_voltage(net.split('/')[-1]) is not None:
+            continue
+        for E in (t['a'], t['b']):
+            if len(ix.ends[(net, t['layer'], q(E))]) != 1 or ix.on_via(net, t['layer'], E):
+                continue
+            p = next((p for p in ix.pads[net] if on_layer(p, t['layer']) and pad_dist(p, E, True) <= -GRAZE
+                      and size(p) <= SMALL_PAD), None)
+            if p is not None and math.dist(E, (p['x'], p['y'])) >= 0.01:
+                out.append((math.dist(E, (p['x'], p['y'])), i, E, lab[id(p)]))
+    return sorted(out, key=lambda r: -r[0])
+
+
 def census_rows(b, skip, box=None):
     """(Counter, rows): rows (kind, net, layer, xy, detail, why, (node, i1, i2) | None);
     box: only nodes, segments and rows inside X0,Y0,X1,Y1"""
@@ -219,8 +254,11 @@ def census_rows(b, skip, box=None):
                 c['off45'] += 1
                 pe = any(ix.on_pad(t['net'], t['layer'], e) for e in (t['a'], t['b']))
                 ve = any(ix.on_via(t['net'], t['layer'], e, t['w'] / 2) for e in (t['a'], t['b']))
-                rows.append(('off45', t['net'], t['layer'], t['mid'], f"{t['len']:.2f} mm at {ang(t['a'], t['b']) % 180:.0f} deg",
-                             'pad end (smooth --square)' if pe else 'via end' if ve else '', None))
+                r = ang(t['a'], t['b']) % 180
+                dv = min(r % 45, 45 - r % 45)              # under 0.3 deg: off by its drift (octi)
+                rows.append(('off45', t['net'], t['layer'], t['mid'], f"{t['len']:.2f} mm at {r:.0f} deg" if dv >= 0.3 else
+                             f"{t['len']:.2f} mm, end {t['len'] * math.sin(math.radians(dv)) * 1000:.0f} um off "
+                             f"{45 * round(r / 45) % 180} deg", 'pad end (smooth --square)' if pe else 'via end' if ve else '', None))
         if t['len'] < 0.05:
             if covered(b, ix, t['net'], t['layer'], t['mid'], t['w'], {i}):
                 c['hidden stub'] += 1
@@ -236,6 +274,21 @@ def census_rows(b, skip, box=None):
         c['pad'] += 1
         rows.append(('pad', b.tracks[i]['net'], b.tracks[i]['layer'], E,
                      f"{math.dist(E, (p['x'], p['y'])):.2f} mm off {lab}", 'fix: smooth --pads', None))
+    for off, i, E, lab in anchor_ends(b, ix, skip):
+        if inb(E):
+            c['anchor'] += 1
+            rows.append(('anchor', b.tracks[i]['net'], b.tracks[i]['layer'], E, f"{off * 1000:.0f} um off {lab}",
+                         'by hand (KiCad joins it as laid)', None))
+    for gap, i, E, j, E2 in sorted(cap_joints(b, ix, skip), key=lambda r: -r[0]):
+        t = b.tracks[i]
+        if not inb(E):
+            continue
+        if covered(b, ix, t['net'], t['layer'], E, t['w'], {i, j}):
+            c['hidden joint'] += 1
+            continue
+        c['joint'] += 1
+        rows.append(('joint', t['net'], t['layer'], E, f"{gap * 1000:.0f} um {'end to end' if E2 else 'off the T axis'}",
+                     '', (gap, i, E, j, E2)))
     from kpcb_jogs import find
     chs = chains(b, skip, ix)                        # jogs, overlaps and twins walk the same chains
     for jog in find(b, skip, every=True, chs=chs):
@@ -453,8 +506,8 @@ path, and CHG_VBUS 71% inside BAT_VBUS still lost 2.7 mm2 of fill, 2026-10-28). 
     return out
 
 
-KINDS = ('acute', '90', 'off45', 'neck', 'stub', 'pad', 'overlap', 'twin', 'jog', 'detour', 'inpour', 'inpourpwr', 'deadend',
-         'zonepts', 'zonedup', 'cleanup')
+KINDS = ('acute', '90', 'off45', 'neck', 'stub', 'pad', 'anchor', 'joint', 'overlap', 'twin', 'jog', 'detour', 'inpour',
+         'inpourpwr', 'deadend', 'zonepts', 'zonedup', 'cleanup')
 
 
 def c_tracks(b, a):
@@ -466,20 +519,20 @@ def c_tracks(b, a):
           + (f"; {len(skip)} RF/USB/diff-pair net(s) skipped (--all includes them)" if skip else ''))
     label = {'acute': 'corners, acute', '90': 'corners 46-90 deg', 'off45': 'off-45 segments',
              'neck': 'width steps mid-run', 'stub': 'segments < 0.05 mm', 'pad': 'ends at a pad edge',
-             'overlap': 'joined only through pad', 'twin': 'twin runs into one pad', 'jog': 'lane jogs 0.05-1 mm', 'detour': 'detours (> 1.5x MST)', 'inpour': 'plane tracks inside fill', 'inpourpwr': 'other tracks inside fill',
+             'anchor': 'ends off a small pad anchor', 'joint': 'joined only by end caps', 'overlap': 'joined only through pad', 'twin': 'twin runs into one pad', 'jog': 'lane jogs 0.05-1 mm', 'detour': 'detours (> 1.5x MST)', 'inpour': 'plane tracks inside fill', 'inpourpwr': 'other tracks inside fill',
              'deadend': 'dead branches (no pad)', 'zonepts': 'zones hard to edit', 'zonedup': 'zones over own-net zone',
              'cleanup': 'KiCad cleanup would change'}
     for k in KINDS:
         print(f"  {label[k]:<22} {c[k]:>4} visible" + (f"  ({c['hidden ' + k]} hidden under same-net copper)"
                                                       if 'hidden ' + k in c else '')
-              + (f"  ({c['inside pad']} more end inside their pad off centre: fine, not listed)"
-                 if k == 'pad' and c['inside pad'] else ''))
+              + (f"  ({c['inside pad']} more end inside their pad off centre: fine as KiCad joins; `anchor` lists"
+                 f" signal ends on pads <= {SMALL_PAD:g} mm)" if k == 'pad' and c['inside pad'] else ''))
     per = Counter((r[2], r[0]) for r in rows if r[0] in ('acute', '90', 'off45'))
     lays = sorted({ly for ly, _k in per}, key=lambda ly: b.copper.index(ly) if ly in b.copper else 99)
     if lays:
         print("  per layer: " + ' | '.join(f"{ly} {per[(ly, 'acute')]} acute {per[(ly, '90')]} x90 "
                                            f"{per[(ly, 'off45')]} off45" for ly in lays))
-    shown = []
+    shown, ix, taken = [], None, None
     for k in kinds:
         order = {'': 0, 'width step': 1, 'T': 2, 'frozen': 3}
         rs = sorted((r for r in rows if r[0] == k), key=lambda r: order.get(r[5], 4))   # what a pass can take first
@@ -491,6 +544,17 @@ def c_tracks(b, a):
             if k == 'jog':                           # priced only when shown: a Clear per jog
                 from kpcb_jogs import verdict
                 why = verdict(b, *r[6], skip=skip)
+            elif k == 'joint':                       # likewise: a Clear per end it moves
+                ix = ix or Index(b)
+                mv, why = close_joint(b, ix, *r[6])
+                why = 'fix: smooth --joints' if mv else why
+            elif k == 'pad':                         # the pass itself, once, on a fresh copy (it edits its board)
+                if taken is None:
+                    from kpcb_board import Board
+                    from kpcb_smooth import pass_pads
+                    taken = {(n, ly, q(E)) for n, ly, E, _c, _l in pass_pads(Board(b.path), skip, lambda *_a: True)}
+                if (r[1], r[2], q(r[3])) not in taken:
+                    why = 'smooth --pads finds no clear way onto the centre: by hand'
             elif not why and r[6]:                   # a free corner: can the corner pass cut it?
                 why = 'fix: smooth --corners' if cut_corner(b, r[1], r[2], *r[6]) else 'boxed in at the real clearance'
             elif not why and k == 'off45':

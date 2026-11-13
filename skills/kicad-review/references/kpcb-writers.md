@@ -302,7 +302,7 @@ to move a part OFF its via-in-pad: R20, 2026-10-28, needed a hand script); the p
 left behind are counted and their teardrops dropped (a via's own ends keep theirs).
 Check the spot with `movecheck REF X Y --no-drag` first.
 
-**`smooth [NET...] [--layers ..] [--box ..] [--micro|--overlaps|--corners|--square|--pads|--jogs|--twins|--all] -o OUT`**
+**`smooth [NET...] [--layers ..] [--box ..] [--micro|--joints|--overlaps|--corners|--square|--pads|--jogs|--twins|--all] -o OUT`**
 (`kpcb_smooth.py`; it, `widen` and `loops` need a `.kicad_pro` in the board's directory,
 any stem: the rules are read by directory glob). The chain pass:
 a chain is a run of same-net, same-layer, same-width segments between anchors - a pad or
@@ -323,16 +323,23 @@ PTH / NPTH from the .kicad_dru conditions; one max of all once read J7's NPTH pe
 PTH 0.28); and every re-laid path (chains, merge, jogs) must still touch each same-net pad
 and via the old one touched (`keeps`: a relaxed anchor once let a chain cut past U6.5); cost = length + bends (45: 0.5, 90: 3, acute: 15) + 2 and 10%
 per off-45 segment, the old chain always a candidate, a result > 9% longer refused; then
-leftover 90s chamfer as deep as clears. `--micro` (first in `--all`): a segment under
+leftover 90s chamfer as deep as clears. Off-45 (`octi`, also what `tracks` counts): over
+0.3 deg off 0/45/90, or its far end over 10 um off that line, so a long near-straight run is
+crooked too (a 10.35 mm trunk 0.28 deg off drifts 50 um; before 2026-11-13 the DP itself laid
+GPIO_10's 32.8 mm run at 89.74 deg). A new dogleg leg under 0.05 mm is never a candidate (it is a
+`stub` row): a drift the DP cannot fold into a neighbouring leg stays, for `--square` or a hand fix. `--micro` (first in `--all`): a segment under
 0.05 mm (`tracks` row `stub`) joining something at both ends (a track end, a via centre, a
-pad) is collapsed - the tracks at one end moved onto the other (the via-centre end, else the
-pad end, else the busier; the other way round when that refuses, never off a via centre),
-each moved track no closer to other copper than it was (`Exact.slack`: it turns a hair and
-its far side gains up to ~35 um, which gave 21 new clearance violations before the check);
+pad) is collapsed angle-exact: its neighbours slide along their own lines onto one point - one
+end when every track at the other end points at it (a via centre never moves, a pad end only
+within its pad), else where the two neighbours' lines cross within 0.15 mm - each moved track
+no closer to other copper than it was (`Exact.slack`; without it 21 new clearance violations).
+A tolerant 0/45/90 check let 54 merges turn long neighbours 0.02-2 deg (reference board slants
+22 -> 44, 2026-11-13; now 22 -> 22, 29 merged): a stub off a via centre its neighbour does not
+point at, a chamfer whose merge leaves a 90 and a micro lane jog are left and say so;
 one with a free end (or both ends in one via) goes only when other same-net copper wholly
 covers it (then everything it touches, its cover touches); the rest are left and say why. A
-merge that would tilt a 0/45/90 neighbour off octilinear is refused (reference board off-45 went 9 ->
-78 without it), and "on a via centre" means the same KiCad nm: a 0.9 um sliver deleted as
+merge never tilts a neighbour (reference board off-45 went 9 -> 78 with the first, untilted-blind
+version), and "on a via centre" means the same KiCad nm: a 0.9 um sliver deleted as
 "both ends on the centre" left UART0_RX's track off it.
 Reference board 2026-10-28, two rounds: 222 -> 28, `kdrc --baseline` 0 new, unconnected 1 -> 1.
 `--overlaps`: doubled same-net copper deleted,
@@ -353,8 +360,17 @@ R37.2, as the designer laid it). Power, GND and poured nets are left (parallel c
 at a node of two tracks (width steps included, connector at the wider width) cut at
 P1/P2 on its legs (0.05 mm steps, <= 1.5 mm), straight or a 45 dogleg, every new turn
 <= 45. `--square`: an off-45 segment ending in a same-net pad slides that end inside the
-pad onto the nearest octilinear line (<= 0.5 mm, >= w/4 inside). `--pads`: a dead-end
-trace (no other same-net track or via at its end) whose cap only grazes a same-net pad
+pad onto the nearest octilinear line (<= 0.5 mm, >= w/4 inside), never tilting a track
+that ends there with it; a pad-to-pad run moves the end in the bigger pad when both moves
+are equal (the small pad's end stays on its anchor). `--joints` (after `--micro` in `--all`):
+a `tracks` `joint` row closed - two dead ends whose copper meets only through their end caps
+both run along their own lines onto where those lines cross (collinear: one end onto the
+other), an off-axis T's end along its line onto the other track's axis: angle-exact, so a
+near-parallel pair a few um apart side to side is left (`runs N um apart side to side`: re-lay
+by hand); only a dead end moves, `Clear` at the real clearance, no leg under 0.05 mm.
+Reference board: 3 closed (2 of the 10 rows, Q11-G B.Cu 248 um; one under its pour), 0 new DRC. `--pads`: a dead-end
+trace (no other same-net track or via at its end, not in its own net's saved fill: a stub
+from the pad into the pour is a pour tie, never a graze) whose cap only grazes a same-net pad
 (centreline end outside it or < 0.05 mm in) is run onto the centre at its own width (an end
 deeper in but off centre is left: 81 of 83 on the reference board, where extending only added hooks at
 JP12.3/JP2.1, a jog at J15.1 and dropped teardrops; `tracks` counts them, unlisted) (a

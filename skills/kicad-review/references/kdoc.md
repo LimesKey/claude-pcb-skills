@@ -9,6 +9,7 @@
 | `text DOC N` | dump one page's text |
 | `-p 7` / `-p 15,18,22` / `-p 38-39` | only those pages: filters `grep` and `near`, picks pages for `text` and `page` |
 | `toc DOC` / `list` | heading per page / what is indexed |
+| `prune [-d NAME]` | drop cached docs whose source file was deleted or moved (`list` tags them `source gone`; grep still hits them until pruned) |
 
 `page` and `text` also accept the doc via `-d`, the same way `grep` does, so
 `kdoc.py -d tps25947 page 4` and `kdoc.py page tps25947 4` are equivalent. They

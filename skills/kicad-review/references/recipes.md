@@ -102,7 +102,8 @@ BEFORE.kicad_pcb` (no net/layer change on kept tracks; its last line is the do-n
 2. `ripup --deadend -o n.kicad_pcb` - copper hanging off one point that serves no pad (a band
    left round it goes with it when its whole zone is dead; else trim the zone by hand); on GND
    only track stubs, never a pour island or the via holding it.
-3. `smooth --micro -o n.kicad_pcb`, twice - segments under 0.05 mm merged into their neighbours.
+3. `smooth --micro -o n.kicad_pcb`, twice - segments under 0.05 mm merged into their neighbours;
+   then `smooth --joints` - ends held only by their caps closed, so the chains they split rejoin.
 4. `loops -o n.kicad_pcb` - redundant chains on signal nets.
 5. `smooth --overlaps -o n.kicad_pcb` - doubled copper, hairpin tips, runs joined only through a pad.
 6. Refill, then `ripup GND --inpour -o n.kicad_pcb` for plane tracks inside their own pour
