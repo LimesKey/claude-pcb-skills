@@ -164,7 +164,8 @@ Netlist, load_sexp) - never re-implement paren matching in an inline script.
 - **The writers (`move`, `place`, `route`, `reroute`, `ripup`, `unhook`, `renet`, `fixlines`, `fatten`, `stitch`, `edit`,
   `smooth`, `widen`, `loops -o`, `refdes`, `pinlabels`, `label`; `kfront pages -o`/`draw`; `kfp edit`) write a
   copy, `-o OUT`, and refuse their input.** Work on a scratch copy of the project and
-  hand back the result; the real board is edited only when the user asks.
+  hand back the result; the real board is edited only when the user asks, then as
+  `kpcb.py BOARD diff SCRATCH --patch --base COPY -o OUT` (never the kicad-cli-saved scratch itself).
 - **Mid-placement, most of the BOM is parked beside the board.** Every kpcb check
   ignores anything outside the outline. `placed 135 of 439` is progress, not an
   error, and a part "not found" by `where` may not exist on the board yet.

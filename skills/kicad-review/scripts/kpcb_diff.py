@@ -6,8 +6,10 @@ and tracks - removed, added, modified (width only, or geometry), net or layer ch
 kept ones, length per layer, and the series resistance of each net's changed tracks
 (stackup copper thickness per layer: a SUM over those tracks, not the path R - `ampacity
 --from --to --fills` is that). --box X0,Y0,X1,Y1 limits vias and tracks to that region;
--v lists each net's removed (-), added (+) and re-widened (~) segments with coordinates."""
-import math
+-v lists each net's removed (-), added (+) and re-widened (~) segments with coordinates.
+`diff SCRATCH --patch [--base COPY] -o OUT` writes the other way: this board with SCRATCH's
+tracks, vias and zones (c_patch)."""
+import math, re
 from collections import defaultdict, Counter
 from kcommon import natkey, trunc, unesc_disp
 from kpcb_board import Board, RHO_CU, thick_of
@@ -99,6 +101,102 @@ def _pair(new, old):
             pairs[r] = r
     return pairs
 
+def _zkids(txt):
+    """a zone's text as (header, [(child name, text)], closer): KiCad's formatter opens each
+    direct child on a line of its own at two tabs"""
+    cut = txt.rindex('\n\t)')
+    ks = re.split(r'\n(?=\t\t\()', txt[:cut])
+    return ks[0], [(re.match(r'\t\t\((\w+)', k)[1], k) for k in ks[1:]], txt[cut:]
+
+
+def _zsplice(btxt, stxt):
+    """this board's zone text with SCRATCH's layers, fill settings (the fillet) and outline,
+    its saved fill dropped (refill); stxt None: btxt unfilled"""
+    grp = lambda n: 'layers' if n == 'layer' else n    # noqa: E731
+    h, bk, end = _zkids(btxt)
+    sk = _zkids(stxt)[1] if stxt else []
+    take = {'layers', 'fill', 'polygon'} if stxt else set()
+    out, done = [h], set()
+    for n, k in bk:
+        g = grp(n)
+        if n in ('filled_polygon', 'fill_segments'):
+            continue
+        if g in take:
+            if g not in done:
+                out += [k2 for n2, k2 in sk if grp(n2) == g]
+                done.add(g)
+            continue
+        out.append(k)
+    return '\n'.join(out) + end
+
+
+def c_patch(b, s, a):
+    """`diff SCRATCH --patch -o OUT [--base COPY]`: this board with SCRATCH's tracks, vias and
+    zones, written into this board's own text (SCRATCH was saved by kicad-cli: never hand that
+    file back; replaying the command log diverges - fresh uuids, refilled vs stale fills). By
+    uuid: a track or via SCRATCH dropped goes (its teardrops with it), one it changed or added is
+    copied verbatim; a changed zone gets SCRATCH's layers, fill settings (fillet) and outline
+    spliced into this board's text, fill dropped; an added zone comes unfilled. --base COPY (the
+    copy SCRATCH was made from): only what SCRATCH changed from COPY is carried, and an item
+    this board changed since then (and SCRATCH too) is a clash, left as this board has it.
+    Footprints, silk and the rest are never carried. OUT is re-read and checked item by item."""
+    from kpcb_edit import PcbText, tear_edits
+    if not a.out:
+        print("diff SCRATCH --patch -o OUT [--base COPY]   (SCRATCH's tracks, vias and zones onto this board)"); return 1
+    o = Board(a.base) if a.base else b
+    q4 = lambda p: (round(p[0], 4), round(p[1], 4))    # noqa: E731
+
+    def items(bd):
+        t = PcbText(bd.path)
+        k = {x['uuid']: ('trk', x['net'], x['layer'], round(x['w'], 4), q4(x['a']), q4(x['b']), q4(x['mid'])) for x in bd.tracks}
+        k.update({v['uuid']: ('via', v['net'], q4((v['x'], v['y'])), v['size'], v['drill'], tuple(v['layers']), v['free'])
+                  for v in bd.vias})
+        for z in bd.zones:
+            if z.uuid not in t.span:                 # a footprint's own rule area: never carried
+                continue
+            zt = t.text(z.uuid)
+            sm, r = re.search(r'\(smoothing (\w+)\)', zt), re.search(r'\(radius ([-\d.]+)\)', zt)
+            k[z.uuid] = ('zone', z[0], tuple(z[1]), tuple(q4(p) for p in z.outline), z.priority, sm and sm[1],
+                         r and round(float(r[1]), 4))
+        return t, k
+    (bt, B), (st, S) = items(b), items(s)
+    O = items(o)[1] if a.base else B
+    todo = {u for u in set(S) | set(O) if S.get(u) != O.get(u)}           # what SCRATCH changed
+    clash = {u for u in todo if B.get(u) != O.get(u) and B.get(u) != S.get(u)}
+    n, gone = Counter(), []
+    trk = {x['uuid']: x for x in b.tracks}
+    for u in sorted(todo - clash):
+        kind = (S.get(u) or O.get(u))[0]
+        if B.get(u) == S.get(u):
+            continue                                 # this board has it already
+        if u in S and u in B:
+            bt.sub(u, _zsplice(bt.text(u), st.text(u)) if kind == 'zone' else st.text(u))
+            n[kind + ' changed'] += 1
+        elif u in S:
+            bt.add((_zsplice(st.text(u), None) if kind == 'zone' else st.text(u)) + '\n')
+            n[kind + ' added'] += 1
+        elif u in B:
+            bt.sub(u, '')
+            n[kind + ' removed'] += 1
+        if u in trk:
+            gone.append(trk[u])
+    tear = len(tear_edits(bt, gone))
+    bt.save(a.out)
+    print(f"patch {s.path} onto {b.path} -> {a.out}: " + (', '.join(f"{v} {k}" for k, v in sorted(n.items())) or 'nothing to carry')
+          + f"; {tear} teardrop(s) of changed copper dropped" + ("; changed zones unfilled: refill" if n['zone changed'] + n['zone added'] else ''))
+    if clash:
+        print(f"  {len(clash)} clash(es): changed on this board since {a.base} and by SCRATCH - left as this board has "
+              "them: " + ' '.join(sorted(u[:8] for u in clash)[:12]))
+    elif todo and not a.base:
+        print("  (no --base: an item this board changed after SCRATCH was copied is SCRATCH's now - --base COPY keeps it)")
+    R = items(Board(a.out))[1]
+    want = {u: B.get(u) if u in clash or u not in todo else S.get(u) for u in set(B) | set(S)}
+    bad = sorted(u for u in set(want) | set(R) if R.get(u) != want.get(u))
+    print(f"  check ok: {a.out}'s tracks, vias and zones are this board's with SCRATCH's {len(todo - clash)} change(s)"
+          if not bad else f"  MISMATCH on {len(bad)} item(s): {' '.join(u[:8] for u in bad[:12])} - do not use {a.out}")
+    return 2 if bad else 0
+
+
 def c_diff(b, a):
     if not a.args:
         print("diff OLD.kicad_pcb [--box X0,Y0,X1,Y1] [-v]   (what changed from OLD to this board)"); return 1
@@ -109,6 +207,8 @@ def c_diff(b, a):
         print(f"diff: no such board: {a.args[0]}"); return 3
     except ValueError as e:
         print(f"diff: {e}"); return 3
+    if a.patch:
+        return c_patch(b, o, a)
     print(f"diff {a.args[0]} -> {b.path}" + (f"  (vias and tracks in {a.box} only)" if box else ''))
     lines, same = [], []
     # footprints

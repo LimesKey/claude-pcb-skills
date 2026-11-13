@@ -3,6 +3,16 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kpcb - no way to carry a verified scratch result onto the real board: replaying the command log
+      diverges (fresh uuids per run, refilled vs stale fills), and the scratch kicad-cli saved must never be handed
+      back. Done: `kpcb.py BOARD diff SCRATCH --patch [--base COPY] -o OUT` - by uuid, the tracks and vias SCRATCH
+      dropped/changed/added (verbatim text; the changed copper's teardrops dropped), its changed zones' layers,
+      fill settings (fillet) and outline spliced into BOARD's own zone text with the fill dropped, added zones
+      unfilled; `--base` (the copy SCRATCH started from) carries only SCRATCH's changes and keeps what BOARD changed
+      since (a clash is left as BOARD has it; without it a note says BOARD's later edits are overwritten); OUT is
+      re-read and checked item by item. Reference board (HEAD): a refilled, kicad-cli-saved `ripup --deadend`
+      scratch patched back in 2.8 s, 33 changes, byte-identical to the direct `ripup -o`. 2026-11-13.
+
 - [x] kicad-review/kpcb - a `tracks` `ends at a pad edge ... fix: smooth --pads` row named a fix the pass then
       declined ("0 of 2"): GND's stub from Q2.2's centre ends in its own pour (a pour tie, not a graze). Done:
       `pad_ends` (the rows and `smooth --pads`) skips an end inside its own net's saved fill, and a listed row is

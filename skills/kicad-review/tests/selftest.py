@@ -1964,6 +1964,14 @@ def main(pick=(), listing=False, keep=False):
                   ["joints: 1 joint(s) held only by end caps closed", "150 um joint: 4.500,2.500 -> 4.650,2.500"]))
     CASES.append(("kpcb smooth --joints result", ['kpcb.py', T('typed/g3.kicad_pcb'), 'tracks', '--kind', 'joint'], 0,
                   ["joined only by end caps    0 visible"]))
+    CASES.append(("kpcb diff --patch --base", ['kpcb.py', T('typed/g2.kicad_pcb'), 'diff', T('typed/g3.kicad_pcb'), '--patch',
+                                               '--base', gb, '-o', T('typed/g4.kicad_pcb')], 0,   # --pads' edits + --joints'
+                  ["1 trk changed;", "check ok: ", "with SCRATCH's 1 change(s)"]))
+    gs = T('typed/gs.kicad_pcb')                 # SCRATCH moves J's joint end too, the other way: a clash
+    open(gs, 'w').write(open(gb).read().replace('(end 4.5 2.5)', '(end 4.6 2.5)'))
+    CASES.append(("kpcb diff --patch clash", ['kpcb.py', T('typed/g3.kicad_pcb'), 'diff', gs, '--patch', '--base', gb, '-o',
+                                              T('typed/g5.kicad_pcb')], 0,
+                  ["nothing to carry", "1 clash(es): changed on this board since", "check ok: "]))
     drb = drift_board(tmp.name)                  # 30 um of drift under 0.3 deg is off-45; E's only dogleg has a 42 um leg
     CASES.append(("kpcb tracks off45 drift", ['kpcb.py', drb, 'tracks', '--kind', 'off45'], 0,
                   ["off-45 segments           2 visible", "6.00 mm, end 30 um off 0 deg", "7.00 mm, end 30 um off 0 deg"]))
@@ -2305,6 +2313,9 @@ def main(pick=(), listing=False, keep=False):
                    "6 item(s) deleted (0 more pruned as dangling), 1 cut back, 1 zone(s)"]))
     CASES.append(("kpcb ripup --deadend result", ['kpcb.py', os.path.join(tmp.name, 'dead2.kicad_pcb'), 'tracks', '--kind', 'deadend'], 0,
                   ["dead branches (no pad)    0 visible"]))
+    CASES.append(("kpcb diff --patch", ['kpcb.py', db, 'diff', os.path.join(tmp.name, 'dead2.kicad_pcb'), '--patch', '-o',
+                                        os.path.join(tmp.name, 'dead3.kicad_pcb')], 0,
+                  ["1 trk changed, 4 trk removed, 2 via removed, 1 zone removed", "(no --base: ", "check ok: "]))
     CASES.append(("kpcb tracks deadend band off a via cluster", ['kpcb.py', band_board(tmp.name), 'tracks', '--kind', 'deadend'], 0,
                   ["B.Cu 5.9 mm, 2 via, 3 mm2 pour off TP5.1", "qrun", "zone zq", "rdead rpiece"]))
     CASES.append(("kpcb unhook leaves no cycle", ['kpcb.py', db, 'unhook', 'TP4', '-o', os.path.join(tmp.name, 'dead3.kicad_pcb')], 0,

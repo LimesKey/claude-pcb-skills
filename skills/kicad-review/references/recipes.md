@@ -49,6 +49,9 @@ skill writes only copies (`-o OUT`), never the board itself.
 **"Place the rest / route what is left"** - on a scratch copy only, never the real
 board (the loop and each writer's model are in [kpcb-writers](kpcb-writers.md)):
 0. `kdrc.py BOARD scratch DIR` (`--from` a board kept elsewhere) - COPY = DIR/<stem>.kicad_pcb.
+   Keep a pristine copy of COPY (`cp COPY BASE.kicad_pcb`): the hand-back at the end is
+   `kpcb.py BOARD diff COPY --patch --base BASE.kicad_pcb -o OUT`, which keeps what the designer
+   changed on BOARD meanwhile.
 1. `kdrc.py COPY drc --refill-save --report r0.json` - fresh fill + the baseline.
 2. `kpcb.py COPY renet --drop` if `summary`-time loads warned of netless copper, then
    `ripup --drc r0.json` to clear shorts, clearance hits and dangling copper.

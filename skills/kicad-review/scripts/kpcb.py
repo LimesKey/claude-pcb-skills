@@ -101,6 +101,8 @@ Writers (always to a new file, -o OUT; verify the copy with kdrc.py):
   kpcb.py FILE diff OLD.kicad_pcb     what changed since OLD: footprints, silk text, vias,
                                       zones, teardrops, tracks (+ length, per-net series R);
                                       --box a region, -v each net's -/+ segments
+  kpcb.py FILE diff SCRATCH --patch [--base COPY] -o OUT   FILE with SCRATCH's tracks, vias and
+                                      zones, by uuid, checked (--base: keep FILE's own edits since COPY)
 
 `ic` is the one command that suggests rather than judges. It reads the IC's own
 pad coordinates - there is no per-part template - classifies its pins by name,
@@ -1030,6 +1032,10 @@ def main():
     ap.add_argument('--sites', default='', help='for `view`: LAYER:X,Y;... one panel per site (-r = half size, 0.8)')
     ap.add_argument('-o', '--out', default='',
                     help='for `view`: output .png (or .svg); for the writers: the new board file')
+    ap.add_argument('--patch', action='store_true', help='for `diff SCRATCH`: write this board with SCRATCH\'s tracks, '
+                    'vias and zones (-o OUT), checked item by item')
+    ap.add_argument('--base', default='', help='for `diff SCRATCH --patch`: the copy SCRATCH was made from; carry only '
+                    'what SCRATCH changed from it, keep what this board changed since')
     ap.add_argument('--scan', nargs='+', default=None, metavar='AXIS=V',
                     help='for `movecheck`: slide REF along x=X y=Y0..Y1 (or y=Y x=X0..X1), print clear stretches')
     ap.add_argument('--step', type=float, default=0.05, help='for `movecheck --scan`: step, mm (0.05)')
