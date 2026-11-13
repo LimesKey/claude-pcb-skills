@@ -20,7 +20,8 @@ Two Claude Code skills (`skills/kicad-review`, `skills/part-search`) and a
   found, gets an entry at the top of [CHANGELOG.md](CHANGELOG.md).
 - New behaviour gets one selftest case: grep `selftest.py` for the command and
   extend the fixture builder it uses (recipes.md, "self-test"). Iterate with
-  `selftest.py -k LABEL`.
+  `selftest.py -k LABEL` (`--keep` leaves its fixtures and outputs in the printed temp dir,
+  to poke at by hand).
 - Run `tools/verify.sh` once at the end, not per fix. When the change can move
   any tool's output, run it with a real project: `tools/verify.sh HEAD DIR
   [EXTRA.json]`. A pure refactor must read N/N unchanged.

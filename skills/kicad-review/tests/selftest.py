@@ -15,6 +15,7 @@ fixture did - see recipes.md for what each fixture exercises.
 
     selftest.py -k smooth -k 'kpcb net'    # only cases whose label contains one of these (~2 s)
     selftest.py --list                     # every case label
+    selftest.py -k table --keep            # keep the temp dir (fixtures + outputs) to poke at by hand
 
 Adding a case is one line in CASES: (label, [tool, *args], expected_exit,
 [substrings that must appear in output]). Anything else is one line in main():
@@ -58,7 +59,7 @@ CASES = [
     ("knet walk",    ['knet.py', NET, 'walk', '/DANGLE'],       0, ["R2.2", "DNP"]),
     ("knet draw",    ['knet.py', NET, 'draw', 'U1', '-d', '2', '-o', svg1], 0, []),
     ("ksch render",  ['ksch.py', 'render', '-o', svg2, KSCH],   0, []),   # + no ERROR (checked below)
-    ("kdrc selftest", ['kdrc.py', '--selftest'],                0, ["16/16 passed"]),
+    ("kdrc selftest", ['kdrc.py', '--selftest'],                0, [" passed"]),     # the count moves; its exit code gates it
     ("kpcb check",   ['kpcb.py', PCB, 'check'],                 2, ["4 error, 10 warn, 3 info"]),
     ("kpcb summary", ['kpcb.py', PCB, 'summary'],               0, ["40.00 x 30.00 mm", "placed 16"]),
     # nightly writes (transform (translate X Y) (rotate R)); read as (at) it parks all at 0,0
@@ -1606,7 +1607,7 @@ def with_inputs(cases, keep):
             keep |= {i for i in range(j) if toks[i] & toks[j]}
     return [c for i, c in enumerate(cases) if i in keep]
 
-def main(pick=(), listing=False):
+def main(pick=(), listing=False, keep=False):
     fails = 0
     if not listing:
         rb, nc, nd = router_lint()
@@ -1616,7 +1617,9 @@ def main(pick=(), listing=False):
         hard = hard_imports()
         fails += check(not hard, "stdlib only: every other import is optional (try/except ImportError)"
                        + ''.join(f'\n      {b}' for b in hard))
-    tmp = tempfile.TemporaryDirectory()
+    tmp = tempfile.TemporaryDirectory(delete=not keep)
+    if keep:
+        print(f"--keep: fixtures and case outputs stay in {tmp.name}")
     mini = mini_project(tmp.name)
     CASES.append(("knet revpol", ['knet.py', mini, 'revpol'], 0,
                   ["D2    SMF10A", "NO FUSE in this loop", "U2.1    IN           -4.2 V below its GND, via 10ohm (R1)"]))
@@ -2687,4 +2690,4 @@ if __name__ == '__main__':
     if sys.argv[1:2] == ['--golden'] and len(sys.argv) in (5, 6):
         sys.exit(golden(*sys.argv[2:6]))
     args = sys.argv[1:]
-    sys.exit(main([v for k, v in zip(args, args[1:]) if k == '-k'], '--list' in args))
+    sys.exit(main([v for k, v in zip(args, args[1:]) if k == '-k'], '--list' in args, '--keep' in args))

@@ -5,3 +5,5 @@ __pycache__/
 dist/
 
 BACKLOG.md
+CLAUDE.local.md
+.claude/settings.local.json
