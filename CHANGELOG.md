@@ -3,6 +3,13 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kpcb - what a month of inline library scripts kept re-deriving (~200 in the reference
+      project's use sessions, 1 in 10 raising). Done: `where REF --pads` lists every copper pad (num, xy, layers,
+      size, rot, pin, net; `--origin` applies); `net NET` adds one `zonedef` line per zone (uuid, priority, layers,
+      name, outline bbox), the lookup scripts did by uuid; FP and Zone answer `f['pads']`, `z['net']`, `.get()`
+      (the guesses that raised), the tuple unpack unchanged. Router: `copper` (box / point, --net, --layers) gets
+      its own row instead of the head of the `edit` row, which now points at `edit`'s own op list (-330 chars).
+      2026-11-14.
 - [x] kicad-review + part-search - papercuts mined from a month of the reference project's sessions (3840 tool
       calls). Done: (1) `-h`/`--help` failed with "the following arguments are required" on knet, kpcb, kdoc and
       kcap unless FILE and CMD were both given (~17 wasted calls); `kcommon.parse_args` now answers it first for

@@ -393,6 +393,12 @@ class FP:
                  'fab', 'scale', 'edgeref', 'arts', 'texts', 'uuid', 'badlines', 'lcsc', 'mpn', 'fields', 'silklines',
                  'sympath')
 
+    def __getitem__(self, k):                   # f['pads'] / f.get('x'): the guess ad-hoc scripts make
+        return getattr(self, k)
+
+    def get(self, k, d=None):
+        return getattr(self, k, d)
+
     @property
     def outline(self):
         """courtyard as closed rings: the real CrtYd shape when it chains, else
@@ -436,6 +442,12 @@ class Zone(tuple):
 
     net = property(lambda z: z[0])
     layers = property(lambda z: z[1])
+
+    def __getitem__(self, k):                   # z['net'] / z.get('outline') work like z.net
+        return getattr(self, k) if isinstance(k, str) else tuple.__getitem__(self, k)
+
+    def get(self, k, d=None):
+        return getattr(self, k, d)
 
 
 class Board:

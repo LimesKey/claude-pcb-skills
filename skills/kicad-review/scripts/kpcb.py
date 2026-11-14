@@ -20,6 +20,7 @@ Commands:
   kpcb.py FILE summary                board size, stackup, what is placed, per sheet
   kpcb.py FILE check                  rule-based placement review (see RULES)
   kpcb.py FILE where U8 J7            position, courtyard, edge distance, neighbours
+                                      (--pads: every pad, absolute xy, size, pin, net)
   kpcb.py FILE where 130,60 -r 8      ...same, around a coordinate
   kpcb.py FILE map                    ASCII occupancy map of the board
   kpcb.py FILE sheet                  per-sheet placement cohesion + bounding box
@@ -384,6 +385,13 @@ def c_where(b, a):
             print(f"  class     : {', '.join(tags)}")
         nets = sorted({p['net'] for p in f.pads if p['net']}, key=natkey)
         print(f"  nets ({len(nets)}) : {trunc(' '.join(unesc_disp(n) for n in nets), 300)}")
+        if a.pads:                               # every pad, absolute: what inline scripts kept dumping
+            for p in sorted(f.pads, key=lambda p: natkey(p['num'])):
+                ly = '/'.join(l.split('.')[0] for l in p['layers'] if l.endswith('.Cu'))
+                if not ly:                       # a paste-only aperture
+                    continue
+                print(f"    {p['num']:<5} {O(p['x'], p['y'])}  {ly:<6} {p['sx']:.2f}x{p['sy']:.2f} "
+                      f"rot {p['prot'] or 0:g}  {trunc(p['fn'], 16):<16} {unesc_disp(p['net'] or '-')}")
         _neigh(b, c, f, a)
         pts.append((spec, (f.x, f.y)))
     if len(pts) == 2:
@@ -887,6 +895,13 @@ def c_net(b, a):
             by[fl['layer']].append(fl['area'])
         for ly, ar in sorted(by.items()):
             print(f"  zone    {ly:<7} {sum(ar):7.1f} mm2 in {len(ar)} fragment(s)")
+        zs = [z for z in b.zones if z.net == net and not z.keepout]
+        for z in zs[:a.max]:                     # the definitions: what `edit` / `zoneshape` take
+            e = bbox(z.outline) if z.outline else None
+            print(f"  zonedef {(z.uuid or '-')[:8]}  prio {z.priority or 0:<3} {'/'.join(z.layers):<14} "
+                  f"{repr(z.name or ''):<18}" + (f" {e[0]:.2f},{e[1]:.2f} .. {e[2]:.2f},{e[3]:.2f}" if e else ''))
+        if len(zs) > a.max:
+            print(f"  ... +{len(zs) - a.max} more zone(s)")
         xy = [(p['x'], p['y']) for _, p in pads] + [q for t in segs for q in (t['a'], t['b'])] \
             + [(v['x'], v['y']) for v in vias]
         if xy:

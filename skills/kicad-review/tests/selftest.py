@@ -62,6 +62,7 @@ CASES = [
     # -h before the required positionals: was "the following arguments are required"
     ("knet help",    ['knet.py', '--help'],                     0, ["knet.py v3"]),
     ("kpcb help cmd", ['kpcb.py', PCB, 'where', '-h'],          0, ["kpcb.py FILE where U8 J7", "lists every command"]),
+    ("kpcb where --pads", ['kpcb.py', PCB, 'where', 'U1', '--pads'], 0, ["    2     11.500, 11.500  F      0.50x0.60 rot 0  GND"]),
     ("kpcb summary zones", ['kpcb.py', PCB2, 'summary'],        0, ["zones  : 1 ", "  F.Cu    GND"]),
     ("knet draw",    ['knet.py', NET, 'draw', 'U1', '-d', '2', '-o', svg1], 0, []),
     ("ksch render",  ['ksch.py', 'render', '-o', svg2, KSCH],   0, []),   # + no ERROR (checked below)
@@ -2365,7 +2366,8 @@ def main(pick=(), listing=False, keep=False):
     CASES.append(("kpcb check DEADCU", ['kpcb.py', db, 'check', '--only', 'DEADCU'], 0,
                   ["[WARN] DEADCU", "P F.Cu 1.5 mm off TP2.1 @16.00,5.00 serves no pad - `ripup --deadend P`"]))
     CASES.append(("kpcb net dead branch", ['kpcb.py', db, 'net', 'P'], 0,
-                  ["dead    branch F.Cu/B.Cu 16.2 mm, 2 via, 6 mm2 pour off F.Cu track @6.00,5.00: serves no pad"]))
+                  ["dead    branch F.Cu/B.Cu 16.2 mm, 2 via, 6 mm2 pour off F.Cu track @6.00,5.00: serves no pad",
+                   "zonedef zband  prio 0   B.Cu           'band'             5.50,7.60 .. 12.50,8.40"]))
     CASES.append(("kpcb ripup --deadend", ['kpcb.py', db, 'ripup', '--deadend', '-o', os.path.join(tmp.name, 'dead2.kicad_pcb')], 0,
                   ["deadend: 2 branch(es) serving no pad, 5 track(s), 2 via(s), 1 whole zone(s)",
                    "6 item(s) deleted (0 more pruned as dangling), 1 cut back, 1 zone(s)"]))
@@ -2777,6 +2779,11 @@ def main(pick=(), listing=False, keep=False):
     ok15 = pn.args == ['net', '-BATT', '-40'] and pn.net == '-VIN' and pn.d == 'X' \
         and any('lock file' in r for r in kcommon.kicad_running(tmp.name))
     fails += check(ok15, f"parse_args dash values {pn.args} --net {pn.net}; lock guard")
+    # ad-hoc scripts guess dict access on FP and Zone; both answer it, the tuple unpack stays
+    zb = kpcb_board.Board(PCB2); z, f = zb.zones[0], next(iter(zb.fps.values()))
+    n_, l_ = z
+    fails += check(z['net'] == z.net == z.get('net') == n_ == z[0] and z['layers'] == l_ and z.get('x', 1) == 1
+                   and f['pads'] is f.pads and f.get('nope') is None, "FP / Zone dict-style access")
     # ksheet page order: depth-first reads A(1) C(3) B(2); the navigator lists B first.
     # _xf rotates before it mirrors: at rot 270 + mirror x, lib +x points sheet up
     import ksheet
