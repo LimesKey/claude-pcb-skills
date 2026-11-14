@@ -102,7 +102,8 @@ so Update Footprint becomes a no-op; instances that differ from the one written 
 (default: where the repo's models already are, else `lib/3dmodels`) with its .step/.wrl
 siblings and re-pointed as `${KIPRJMOD}/...`; a different file already there is never
 overwritten (that path stays). Lib ids move on the board and in every placed symbol's Footprint
-field, never in the `lib_symbols` cache (that would read as lib_symbol_mismatch); NICK joins
+field (the sheets of the project's hierarchy: its root and top-level sheets and the Sheetfiles
+they pull in, never a stray copy such as a backup in `./orig/`), never in the `lib_symbols` cache (that would read as lib_symbol_mismatch); NICK joins
 the fp-lib-table if missing.
 
 Symbols: every one from a library outside the repo, and every one ERC calls
@@ -119,7 +120,8 @@ no table here is only counted. NICK joins the sym-lib-table if missing.
 
 Also listed: stock footprints Update Footprint would change, by direction against another
 KiCad install's stock copy (stable beside nightly): the board equal to the older copy = worth
-pulling; both stock copies equal = a local fix it would undo. Dry run by default; --apply
+pulling; a board copy that only LACKS what stock has (a pad without a field, nothing board-only)
+= stale, worth pulling; else both stock copies equal = a local fix it would undo. Dry run by default; --apply
 writes in place, refused while KiCad holds the project. Prove it after: `kfp libs` (nothing
 outside), `kverify .` (ERC and sync PASS; the netlist row is only the re-pointed Footprint
 fields), `kpcb diff OLD` ("no change": geometry is untouched). Reference board 2026-11-12, on a

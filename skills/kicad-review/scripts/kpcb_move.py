@@ -115,6 +115,8 @@ class World:
         self.b, cu, self.drag = b, b.copper, drag
         self.clr = _clearance_fn(b)[0]
         self.ec = b.edge_clearance()
+        # a pad's own (clearance X), by item name: it replaces the rules for any pair it is in
+        self.lclr = {f"{g.ref}.{p['num']}": p['lclr'] for g in b.placed() for p in g.pads if p['lclr']}
         movers = [g for g in (b.fps.get(r) for r in (ref, *skip)) if g]     # what moves: not an obstacle
         self.pads = [(g.ref, p['num'], p['net'], cu_layers(p['layers'], cu) if not p['drill'] else set(cu),
                       pad_box(p)) for g in b.placed() if g not in movers for p in g.pads
@@ -172,11 +174,12 @@ class World:
             k = 'via' if name.startswith('via') else 'pad'
             # a via is a disk, not its bounding square (that reads ~0.12 mm too close on a diagonal)
             c, r = ((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2), (bb[2] - bb[0]) / 2
-            disk = k == 'via'
+            disk, o1 = k == 'via', self.lclr.get(name, 0.0)
             for ref, num, n2, L2, b2 in near['p']:
                 if (net and n2 == net) or not (L & L2) or not hit(zone, b2):
                     continue
-                need = max(self.clr(net, n2, k, 'pad', ly) for ly in L & L2)
+                o2 = self.lclr.get(f"{ref}.{num}", 0.0)
+                need = max(self.clr(net, n2, k, 'pad', ly, o1, o2) for ly in L & L2)
                 gap = pt_box_dist(c, b2) - r if disk else _box_gap(bb, b2)
                 if gap < need - 1e-6:
                     out[('pad', ref, num, name)] = Hit(f"{name} {gap:.2f} mm from {ref}.{num} "
@@ -186,7 +189,7 @@ class World:
                         not hit(zone, (min(t['a'][0], t['b'][0]) - t['w'], min(t['a'][1], t['b'][1]) - t['w'],
                                        max(t['a'][0], t['b'][0]) + t['w'], max(t['a'][1], t['b'][1]) + t['w'])):
                     continue
-                need = self.clr(net, t['net'], k, 'track', t['layer'])
+                need = self.clr(net, t['net'], k, 'track', t['layer'], o1)
                 gap = (pt_seg_dist(c, t['a'], t['b']) - r if disk else seg_box_dist(t['a'], t['b'], bb)) - t['w'] / 2
                 if gap < need - 1e-6:
                     out[('trk', id(t), name)] = Hit(f"{name} {max(gap, 0):.2f} mm from a {unesc_disp(t['net'])} "
@@ -196,7 +199,7 @@ class World:
                 if (net and v['net'] == net) or not (L & self.vl[id(v)]) or \
                         not hit(zone, grow((v['x'], v['y'], v['x'], v['y']), v['size'])):
                     continue
-                need = max(self.clr(net, v['net'], k, 'via', ly) for ly in L & self.vl[id(v)])
+                need = max(self.clr(net, v['net'], k, 'via', ly, o1) for ly in L & self.vl[id(v)])
                 gap = (math.dist((v['x'], v['y']), c) - r if disk else pt_box_dist((v['x'], v['y']), bb)) - v['size'] / 2
                 if gap < need - 1e-6:
                     out[('via', id(v), name)] = Hit(f"{name} {max(gap, 0):.2f} mm from a {unesc_disp(v['net'])} "
@@ -226,7 +229,8 @@ class World:
             for ref, num, n2, L2, b2 in near['p']:
                 if (net and n2 == net) or ly not in L2:
                     continue
-                need, gap = self.clr(net, n2, 'track', 'pad', ly), seg_box_dist(a, c, b2) - w / 2
+                need = self.clr(net, n2, 'track', 'pad', ly, o2=self.lclr.get(f"{ref}.{num}", 0.0))
+                gap = seg_box_dist(a, c, b2) - w / 2
                 if gap < need - 1e-6:
                     out[('spad', ref, num, name)] = Hit(f"dragged {name} {max(gap, 0):.2f} mm from {ref}.{num} "
                                                       f"({unesc_disp(n2) or 'no net'}), needs {need:.2f}", gap)
@@ -289,9 +293,17 @@ def placed_as(f, x, y, rot, cu):
 
 
 def _report(before, after):
+    """(new, still, gone): the hits a spot adds, the current spot's hits it keeps (a clash
+    there still: they block it too) and the count it clears"""
     new = {k: v for k, v in after.items() if k not in before}
-    gone = [k for k in before if k not in after]
-    return new, gone
+    still = {k: v for k, v in after.items() if k in before}
+    return new, still, sum(k not in after for k in before)
+
+
+def _now(before):
+    if before:
+        print(f"  the current spot already has {len(before)} hit(s), e.g. {min(before.values(), key=lambda h: h.gap)}: "
+              "a spot that keeps one is not clear")
 
 
 def c_movecheck(b, a):
@@ -309,24 +321,28 @@ def c_movecheck(b, a):
         rot = float(a.args[3]) if len(a.args) > 3 else None
     except (IndexError, ValueError):
         print("movecheck REF X Y [ROT]  (board mm, KiCad's page origin)"); return 1
-    new, gone = _report(before, w.move_hits(f, x, y, rot))
+    new, still, gone = _report(before, w.move_hits(f, x, y, rot))
     print(f"movecheck {f.ref} -> {x:.3f},{y:.3f}" + (f" rot {rot:g}" if rot is not None else '')
           + f"   (now {f.x:.3f},{f.y:.3f} rot {f.rot:g}; dx {x - f.x:+.3f} dy {y - f.y:+.3f})")
-    print(f"  clearances: netclasses + .kicad_dru net pairs and type rules; copper to edge {w.ec:g} mm; pads as "
+    print(f"  clearances: netclasses + .kicad_dru net pairs and type rules, a pad's own (clearance); copper to edge {w.ec:g} mm; pads as "
           + (f"boxes; {len(w.own)} own track(s) drag, checked at their new position" if w.drag else
              "boxes; --no-drag (Move, M): its tracks and in-pad vias stay, obstacles like the rest"))
+    _now(before)
     for k in sorted(new, key=lambda k: new[k]):
         print(f"  NEW   {new[k]}")
+    for k in sorted(still, key=lambda k: still[k]):
+        print(f"  STILL {still[k]}")
     if gone:
-        print(f"  cleared {len(gone)} hit(s) the current spot has")
+        print(f"  cleared {gone} hit(s) the current spot has")
     if not w.drag:
         ends, vs, stay = pad_ends(b, f)
         if ends or stay or vs:
             print(f"  left behind: {len(ends) + stay} track end(s) on its pads, {len(vs)} via(s) in them - "
                   "re-link them to the moved pads")
-    print(f"  => {'CLEAR: nothing new' if not new else f'{len(new)} new hit(s)'}"
-          + (f"  ({len(before)} at the current spot, unchanged)" if before and not new else ''))
-    return 2 if new else 0
+    bad = [f'{len(new)} new hit(s)'] * bool(new) + [f"{len(still)} of the current spot's still there"] * bool(still)
+    print(f"  => {', '.join(bad) if bad else 'CLEAR: nothing new'}"
+          + (f", and it clears the {gone} the current spot has" if gone and not bad else ''))
+    return 2 if bad else 0
 
 
 def _scan(b, a, f, w, before):
@@ -342,11 +358,12 @@ def _scan(b, a, f, w, before):
     rows, t = [], lo
     while t <= hi + 1e-9:
         x, y = (t, fixed) if ax == 'x' else (fixed, t)
-        new, _gone = _report(before, w.move_hits(f, x, y, None))
-        rows.append((t, new))
+        new, still, _gone = _report(before, w.move_hits(f, x, y, None))
+        rows.append((t, {**new, **still}))
         t = round(t + step, 6)
     print(f"movecheck {f.ref} --scan {ax} {lo:g}..{hi:g} at {'y' if ax == 'x' else 'x'}={fixed:g}, "
           f"step {step:g}   (now {f.x:.3f},{f.y:.3f})")
+    _now(before)
     i = 0
     while i < len(rows):
         j = i

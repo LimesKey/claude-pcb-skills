@@ -3,6 +3,36 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kpcb - `tracks --kind cleanup` GUI check, follow-ups. Done: (1) reran the 341e42d~1 board in
+      10.99 with "Refill zones" ticked (KiCad asked to refill out-of-date fills: yes) and "inside pads" off: the same
+      result as the unticked runs, 0 merges, the same 12 tracks + 2 vias deleted; the refill only regenerated one
+      unrelated teardrop. (2) a `deadend` row now says when KiCad's dangling pass differs from it, from ripup's
+      prune run over the row as it lies (`prune(test=)`, no _newly_dead: KiCad keeps a cycle whose every end
+      joins something): `KiCad's Cleanup takes 4 of its 23 (its pour holds the rest)` (+BATT), `... and 1 more it
+      then leaves dangling: 894570b6` (-BATT; the earlier entry put that 31 um stub on +BATT), `takes UUID whole
+      (it cannot cut a track back)`. Both reference rows match the GUI item for item. Found on the way: prune
+      let one item credit both ends of a track (KiCad's TestTrackEndpointDangling credits the nearer, getMinDist),
+      so `ripup --deadend` left that stub: it now deletes the 10 KiCad does; dead_copper's "join piece on the
+      attach node" clause took a whole track when only one piece of it was the loop, and a cut-back keeping zero
+      length now reads wholly dead. 2026-11-13.
+- [x] kicad-review/kfp - `vendor --apply` rewrote every `.kicad_sch` under the project dir, backups in ./orig/
+      included. Done: the sheet set is the hierarchy (project root and top-level sheets, then each Sheetfile
+      relative to the sheet naming it, as eeschema loads them; a flat glob only when no root is known), for the
+      Footprint fields and the symbol plan alike. 2026-11-13.
+- [x] kicad-review/kfp - `vendor` called a board copy that only LACKS a field both stock copies have "a local fix".
+      Done: `_adds` pairs each board-only pad with a library twin of the same number whose fields are a strict
+      superset; when nothing is board-only otherwise the row reads `stale: the board copy only lacks what stock
+      has, nothing board-only: worth pulling` (reference board FID1-FID6, `pad_prop_fiducial_glob`). 2026-11-13.
+- [x] kicad-review/kpcb - `movecheck` "new hits only" hid a clash the part already had. Done: the current spot's
+      hits are named first; one a candidate keeps prints `STILL` and blocks it (exit 2, and `--scan` counts it).
+      2026-11-13.
+- [x] kicad-review/kpcb - `movecheck` ignored a pad's own `(clearance X)`. Done: pads carry `lclr` (pad, else
+      footprint `(clearance)`); `_clearance_fn`'s clr takes o1/o2 and, as KiCad's drc_engine, the larger override
+      REPLACES netclass and rules, floored at the board min_clearance (not max(netclass, local): a local 0.1 on a
+      0.2 class is 0.1 in KiCad). movecheck, route, smooth and jogs pass it. Reference FID6: its current spot
+      already reads 0.55 mm from a GND via, needs 0.60. 2026-11-13.
+- [x] kicad-review/kpcb - `freebox f W H` crashed (IndexError) on art left of the outline. Done: a raster span's
+      end is clamped to its start, so a negative end no longer shrinks the row via slice assignment. 2026-11-13.
 - [x] kicad-review/kpcb - confirm `tracks --kind cleanup` in the GUI. Done: ran Tools -> Cleanup Tracks & Vias in
       10.99 (g8304096633) on a private Xvnc display (`Xvnc :99 -rfbport -1 -rfbunixpath`, its own
       KICAD_CONFIG_HOME, xdotool aimed at :99 only) on scratch copies of the reference board at 341e42d~1. KiCad

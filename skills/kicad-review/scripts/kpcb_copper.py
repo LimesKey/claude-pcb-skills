@@ -752,7 +752,8 @@ def dead_copper(b, net, C=None, terminal=None):
         mine = {_q(e) for o, _L in trk.values() for e in (o['a'], o['b'])}
         for w in {w for w, _xy in touch}:            # a join piece left on the attach node (both ends in the
             for t, L in loops[w]:                    # trunk's end cap) that meets only this branch goes with it
-                if id(t) not in trk and any(_q(e) in mine and tips[_q(e)] == 2 for e in (t['a'], t['b'])):
+                if id(t) not in trk and L >= t['len'] - 1e-6 and \
+                        any(_q(e) in mine and tips[_q(e)] == 2 for e in (t['a'], t['b'])):   # all of t, not one piece
                     trk[id(t)] = (t, L)              # (-BATT bb0f2c8e outlived its branch, reference board)
                     pieces[id(t)] = [(None, None, True)]
         for t in micro:                              # a join left out of the graph: with its dead via
@@ -768,6 +769,9 @@ def dead_copper(b, net, C=None, terminal=None):
             live = [i for i, (*_k, d) in enumerate(ps) if not d]
             if live == list(range(live[0], live[-1] + 1)):   # a dead end: cut back to the last live piece
                 a2, b2 = _key_xy(ps[live[0]][0]) or o['a'], _key_xy(ps[live[-1]][1]) or o['b']
+                if math.dist(a2, b2) < 1e-6:                  # it keeps only the point it hangs off: all dead
+                    rows.append((o, L, None))
+                    continue
                 rows.append((o, L, _via_centred(b, o, (_on_line(o, a2) if live[0] else o['a'],
                                                        _on_line(o, b2) if live[-1] < len(ps) - 1 else o['b']), stubs)))
             else:

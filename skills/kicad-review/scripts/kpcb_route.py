@@ -500,12 +500,12 @@ class Grid:
             same = p['net'] == net and net
             for ly in lys:
                 if ly in self.blk and not same:
-                    paint(self.blk[ly], sh, clr(net, p['net'], 'track', 'pad', ly) + extra_clr + w / 2 + m)
+                    paint(self.blk[ly], sh, clr(net, p['net'], 'track', 'pad', ly, o2=p['lclr']) + extra_clr + w / 2 + m)
             if same:                                     # no via in its own SMD pad
                 if not p['drill'] and ownpads:           # (`stitch --in-pad` judges big pads itself)
                     paint(self.vblk, sh, vsz / 2 + m)
             else:
-                c = max(clr(net, p['net'], 'via', 'pad', ly) for ly in lys) if lys else clr(net, p['net'])
+                c = max(clr(net, p['net'], 'via', 'pad', ly, o2=p['lclr']) for ly in lys) if lys else clr(net, p['net'], o2=p['lclr'])
                 paint(self.vblk, sh, c + extra_clr + vsz / 2 + m)
         for t in b.tracks:
             (ax, ay), (bx, by), hw = t['a'], t['b'], t['w'] / 2

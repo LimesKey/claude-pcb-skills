@@ -171,7 +171,9 @@ def _clearance_fn(b):
     (the unfused-pack rule). Given both item kinds ('track', 'pad', 'via') and the layer,
     the last matching .kicad_dru type rule replaces it, as KiCad's DRC does ("Pad to Track"
     0.1, track to track 0.127 outer / 0.1 inner), but never relaxes a raised netclass (RF)
-    or a pair rule. Warns once when no project rules sit beside the board. Once per board:
+    or a pair rule. o1/o2: the items' own `(clearance X)` (a pad's, else its footprint's): as
+    KiCad's DRC, the larger replaces every rule above, floored at the board minimum clearance.
+    Warns once when no project rules sit beside the board. Once per board:
     every route/smooth window asks, and the rules files do not change under one Board."""
     if '_clr' not in b.__dict__:
         b._clr = _clearance_build(b)
@@ -181,11 +183,13 @@ def _clearance_fn(b):
 def _clearance_build(b):
     d = os.path.dirname(os.path.abspath(b.path))
     b.warn_rules()
-    cls = {}
+    cls, bmin = {}, 0.0
     for pro in glob.glob(os.path.join(d, '*.kicad_pro')):
         try:
-            cls = {c['name']: c for c in json.load(open(pro))['net_settings']['classes']}
-        except (OSError, ValueError, KeyError):
+            js = json.load(open(pro))
+            cls = {c['name']: c for c in js['net_settings']['classes']}
+            bmin = float(js['board']['design_settings']['rules'].get('min_clearance') or 0)
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
             pass
         break
     pair = {}
@@ -201,7 +205,9 @@ def _clearance_build(b):
     outer = b.outer
     dflt = (cls.get('Default') or {}).get('clearance') or 0.2
 
-    def clr(n1, n2, k1=None, k2=None, ly=None):
+    def clr(n1, n2, k1=None, k2=None, ly=None, o1=0.0, o2=0.0):
+        if o1 or o2:                                    # a local override beats netclass and rules
+            return max(o1 or 0.0, o2 or 0.0, bmin)
         c = max((cls.get(b.netclass(n) or 'Default') or {}).get('clearance') or dflt for n in (n1, n2))
         pr = pair.get(frozenset((n1, n2)), 0)
         if pr or not (k1 and k2 and ly):

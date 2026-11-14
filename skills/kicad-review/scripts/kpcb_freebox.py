@@ -20,12 +20,14 @@ def occupancy(b, back, edge=1.0):
         xs = sorted(a[0] + (y - a[1]) * (c[0] - a[0]) / (c[1] - a[1])
                     for a, c in b.edge_segs if (a[1] <= y) != (c[1] <= y))
         for s, e in zip(xs[0::2], xs[1::2]):
-            i0, i1 = max(0, math.ceil((s - x0) / RES - .5)), min(nx, math.floor((e - x0) / RES - .5) + 1)
-            g[j][i0:i1] = bytes(max(0, i1 - i0))
+            i0 = max(0, math.ceil((s - x0) / RES - .5))
+            i1 = max(i0, min(nx, math.floor((e - x0) / RES - .5) + 1))   # a negative end would shrink the row
+            g[j][i0:i1] = bytes(i1 - i0)
     def mark(bx):
-        i0, i1 = max(0, math.floor((bx[0] - x0) / RES)), min(nx, math.ceil((bx[2] - x0) / RES))
+        i0 = min(nx, max(0, math.floor((bx[0] - x0) / RES)))
+        i1 = max(i0, min(nx, math.ceil((bx[2] - x0) / RES)))   # off-board art: a negative end would shrink the row
         for j in range(max(0, math.floor((bx[1] - y0) / RES)), min(ny, math.ceil((bx[3] - y0) / RES))):
-            g[j][i0:i1] = b'\x01' * max(0, i1 - i0)
+            g[j][i0:i1] = b'\x01' * (i1 - i0)
     for a, c in b.edge_segs:                     # the edge band
         for j in range(max(0, math.floor((min(a[1], c[1]) - edge - y0) / RES)),
                        min(ny, math.ceil((max(a[1], c[1]) + edge - y0) / RES))):

@@ -762,6 +762,7 @@ class Board:
         f.pads = []
         fzc = val(node, 'zone_connect')                 # footprint override: 0 none 1 thermal 2 solid 3 THT
         fmask = val(node, 'solder_mask_margin')         # footprint override of the board's mask expansion
+        fclr = val(node, 'clearance')                   # footprint override of every clearance rule
         pad_pts, all_pts, crt_pts, crt_segs, fab_pts, fab_circ, dwg = [], [], [], [], [], [], []
         for p in kids(node, 'pad'):
             num = p[1] if len(p) > 1 else '?'
@@ -802,6 +803,7 @@ class Board:
                            'drill': max(dn) if dn else 0.0, 'prims': prims,
                            'zc': int(_f(val(p, 'zone_connect') or fzc, -1)),     # -1: the zone decides
                            'mask': _f(val(p, 'solder_mask_margin') or fmask, self.mask_clear),
+                           'lclr': _f(val(p, 'clearance'), 0.0) or _f(fclr, 0.0),   # 0: none (KiCad's DRC too)
                            'layers': [l for l in lays[1:] if isinstance(l, str)]})
             if net:
                 self.nets[net].append((f.ref, num))

@@ -423,9 +423,12 @@ def vendor_proj(d):
     """a project whose board takes ext:R from a library outside it, with a 3D model there too,
     and a schematic naming ext:R in a placed symbol and in its lib_symbols cache. Symbols: Q1
     and Q2 (KiCad's lib_name variant Q_1) from extsym outside the repo, U1 from the project's
-    ps with an MPN field added in the schematic (erc.json: ERC's lib_symbol_mismatch on it)"""
+    ps with an MPN field added in the schematic (erc.json: ERC's lib_symbol_mismatch on it).
+    Subsheet sub/s.kicad_sch (R2 on ext:R) is in the hierarchy; orig/v.kicad_sch, a backup
+    copy, is not and must stay untouched"""
     pj, ext = os.path.join(d, 'vend'), os.path.join(d, 'vend_ext')
-    for x in (pj, os.path.join(pj, 'lib', 'p.pretty'), os.path.join(ext, 'ext.pretty')):
+    for x in (pj, os.path.join(pj, 'lib', 'p.pretty'), os.path.join(ext, 'ext.pretty'), os.path.join(pj, 'sub'),
+              os.path.join(pj, 'orig')):
         os.makedirs(x, exist_ok=True)
     mod = ('(footprint "R"\n\t(version 20240108)\n\t(generator "pcbnew")\n\t(layer "F.Cu")\n'
            '\t(property "Reference" "REF**"\n\t\t(at 0 -1.5 0)\n\t\t(layer "F.SilkS")\n\t)\n'
@@ -450,9 +453,15 @@ def vendor_proj(d):
                        + sym('Q', 2, '"ext:R"', 'extsym:Q', 'Q1') + '\n' + sym('Q_1', 2, '"ext:R"', ref='Q2', extra='Rev')
                        + '\n' + sym('S', 2, name='ps:S', ref='U1', extra='MPN') + '\n\t)\n'
                        + placed('Device:R', 'r1', 'R1', '"ext:R"') + placed('extsym:Q', 'q1', 'Q1', '"ext:R"')
-                       + placed('extsym:Q', 'q2', 'Q2', lib_name='Q_1') + placed('ps:S', 'u1', 'U1') + ')\n')):
+                       + placed('extsym:Q', 'q2', 'Q2', lib_name='Q_1') + placed('ps:S', 'u1', 'U1')
+                       + '\t(sheet\n\t\t(uuid "sh1")\n\t\t(property "Sheetname" "sub"\n\t\t)\n'
+                       '\t\t(property "Sheetfile" "sub/s.kicad_sch"\n\t\t)\n\t)\n)\n'),
+                      (os.path.join(pj, 'sub', 's.kicad_sch'), '(kicad_sch\n\t(version 20250114)\n'
+                       + placed('Device:R', 'r2', 'R2', '"ext:R"') + ')\n')):
         with open(path, 'w') as fh:
             fh.write(txt)
+    with open(os.path.join(pj, 'orig', 'v.kicad_sch'), 'w') as fh:       # a backup copy, outside the hierarchy
+        fh.write(open(os.path.join(pj, 'v.kicad_sch')).read())
     body = mod.replace('(footprint "R"', '(footprint "ext:R"').replace('"REF**"', '"R1"').replace(
         '\t(layer "F.Cu")\n', '\t(layer "F.Cu")\n\t(at 10 5)\n', 1)
     body = ''.join('\t' + ln + '\n' for ln in body.rstrip('\n').split('\n'))
@@ -546,13 +555,15 @@ def pair_board(d):
 
 def freebox_board(d):
     """30 x 20 board: U1's courtyard over x 1..13, a logo over x 14..19, and board text
-    "AB" anchored left-bottom at 25,2 - so a 6 x 4 box only fits right of x 19, below y 2"""
+    "AB" anchored left-bottom at 25,2 - so a 6 x 4 box only fits right of x 19, below y 2;
+    text "ZZ" off the board at x -6 (its raster cells clamp, not shrink a row)"""
     p = os.path.join(d, 'freebox.kicad_pcb')
     open(p, 'w').write(
         '(kicad_pcb (version 20240108) (generator "pcbnew")'
         ' (layers (0 "F.Cu" signal) (2 "B.Cu" signal) (25 "Edge.Cuts" user))'
         ' (gr_rect (start 0 0) (end 30 20) (layer "Edge.Cuts"))'
         ' (gr_text "AB" (at 25 2 0) (layer "F.SilkS") (effects (font (size 1 1)) (justify left bottom)))'
+        ' (gr_text "ZZ" (at -6 2 0) (layer "F.SilkS") (effects (font (size 1 1))))'
         ' (footprint "M" (layer "F.Cu") (at 7 10) (property "Reference" "U1")'
         ' (fp_rect (start -6 -9) (end 6 9) (layer "F.CrtYd"))'
         ' (pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu") (net "A")))'
@@ -671,7 +682,9 @@ def link_board(d):
 
 def move_board(d):
     """R1 (pads A/B at 9.5/10.5,10) with its own A track running to 9.5,5; a foreign C
-    track down x=12 (0.2 mm); a bare D via at 8,14. Default clearance 0.2, edge 0.3."""
+    track down x=12 (0.2 mm); a bare D via at 8,14. FID1 at 15,5, a 1 mm pad with its own
+    (clearance 0.6), an E via 0.7 mm off it; TP1 at 4,4 already 0.15 mm from a G track
+    (y 4.75). Default clearance 0.2, edge 0.3."""
     p = os.path.join(d, 'move.kicad_pcb')
     open(p, 'w').write(
         '(kicad_pcb (version 20240108) (generator "pcbnew")'
@@ -683,7 +696,13 @@ def move_board(d):
         ' (pad "2" smd rect (at 0.5 0) (size 0.5 0.5) (layers "F.Cu") (net "B")))'
         ' (segment (start 9.5 10) (end 9.5 5) (width 0.2) (layer "F.Cu") (net "A"))'
         ' (segment (start 12 2) (end 12 18) (width 0.2) (layer "F.Cu") (net "C"))'
-        ' (via (at 8 14) (size 0.6) (drill 0.3) (layers "F.Cu" "B.Cu") (net "D")))')
+        ' (via (at 8 14) (size 0.6) (drill 0.3) (layers "F.Cu" "B.Cu") (net "D"))'
+        ' (footprint "Fid" (layer "F.Cu") (at 15 5) (property "Reference" "FID1")'
+        ' (pad "" smd circle (at 0 0) (size 1 1) (layers "F.Cu" "F.Mask") (clearance 0.6)))'
+        ' (via (at 16.5 5) (size 0.6) (drill 0.3) (layers "F.Cu" "B.Cu") (net "E"))'
+        ' (footprint "TP" (layer "F.Cu") (at 4 4) (property "Reference" "TP1")'
+        ' (pad "1" smd rect (at 0 0) (size 1 1) (layers "F.Cu") (net "T")))'
+        ' (segment (start 2 4.75) (end 8 4.75) (width 0.2) (layer "F.Cu") (net "G")))')
     return p
 
 def silk_board(d):
@@ -1494,6 +1513,18 @@ def dead_board(d):
     return _tab_board(d, 'dead.kicad_pcb', 20, 10, body)
 
 
+def attach_stub_board(d):
+    """Net S: TP1 (2,5) -> J (8,5) on F, 1.5 mm; a via on that trunk 0.42 mm short of J, out on B
+    to a via at 4,8 and on F to TP2 (2,8); a dead 1.3 mm branch J -> (12,5), and sstub, a 31 um
+    1.5 mm stub at J lying in the trunk and the via (the reference board's -BATT attach: KiCad's
+    Cleanup took it with the branch, an item over both its ends crediting one)"""
+    return _tab_board(d, 'astub.kicad_pcb', 14, 10, _tab_fp('TP1', 2, 5, [('1', 0, 0, 1, 1, 'S')])
+                      + _tab_fp('TP2', 2, 8, [('1', 0, 0, 1, 1, 'S')]) + _tseg(2, 5, 8, 5, 'S', 1.5, uid='strunk')
+                      + _tseg(8, 5, 8.022, 5.022, 'S', 1.5, uid='sstub') + _tseg(8, 5, 12, 5, 'S', 1.3, uid='sbr')
+                      + _tvia(7.777, 4.65, 'S') + _tseg(7.777, 4.65, 4, 8, 'S', 0.3, 'B.Cu') + _tvia(4, 8, 'S')
+                      + _tseg(4, 8, 2, 8, 'S', 0.3))
+
+
 def micro_board(d):
     """typed rules. Net N: TP1 (2,5) -> (8,5), a 30 um link (8,5)->(8.03,5), -> TP2 (14,5): merged.
     Net M: TP3 (2,8) -> (8,8) w0.3, then a 20 um w0.2 dot at its end, under its cap: deleted"""
@@ -1808,6 +1839,11 @@ def main(pick=(), listing=False, keep=False):
     CASES.append(("kpcb movecheck clear", ['kpcb.py', mv, 'movecheck', 'R1', '10.5', '10'], 0, ["CLEAR: nothing new"]))
     CASES.append(("kpcb movecheck scan", ['kpcb.py', mv, 'movecheck', 'R1', '--scan', 'y=10', 'x=9..12', '--step', '0.25'], 0,
                   ["x    9.000 ..   10.750  clear", "x   11.000 ..   12.000  blocked by a C track"]))
+    CASES.append(("kpcb movecheck pad clearance", ['kpcb.py', mv, 'movecheck', 'FID1', '15.3', '5'], 2,
+                  ["NEW   FID1. 0.40 mm from a E via @16.50,5.00, needs 0.60"]))
+    CASES.append(("kpcb movecheck still", ['kpcb.py', mv, 'movecheck', 'TP1', '--scan', 'x=4', 'y=3..4', '--step', '0.25'], 0,
+                  ["the current spot already has 1 hit(s), e.g. TP1.1 0.15 mm from a G track", "y    3.000 ..    3.750  clear",
+                   "y    4.000 ..    4.000  blocked by a G track on F.Cu @5.00,4.75"]))
     CASES.append(("kpcb movecheck via", ['kpcb.py', mv, 'movecheck', 'via', '8,14', '8,15'], 0,
                   ["a bare stitching via, free to move", "CLEAR: nothing new"]))
     wb = writer_board(tmp.name)
@@ -2078,12 +2114,13 @@ def main(pick=(), listing=False, keep=False):
     CASES.append(("kfp vendor dry run", vend, 0,
                   ["vendor into p (lib/p.pretty), models into lib/3dmodels", "footprint ext:R -> p:R  (R1): library file",
                    "models: 1 file(s) from", "-> ${KIPRJMOD}/lib/3dmodels/R.step  (R1)", "schematic v.kicad_sch: 2 Footprint field(s)",
+                   "schematic sub/s.kicad_sch: 1 Footprint field(s)",
                    "board: 1 footprint(s) re-pointed", "(dry run: --apply", "symbol extsym:Q -> ps:Q  (Q1): outside the repo",
                    "symbol extsym:Q -> ps:Q_1  (Q2): outside the repo",
                    "symbol ps:S  (U1): edited in the schematic; the schematic's copy replaces the library's",
                    "symbols: 3 written into ps (lib/ps.kicad_sym, 1 replacing its own copy), 3 instance(s) re-pointed in 1"]))
     CASES.append(("kfp vendor --apply", vend + ['--apply', '--force'], 0,
-                  ["wrote 1 footprint(s), 1 symbol library, 1 model file(s), the board, 1 schematic(s)"]))
+                  ["wrote 1 footprint(s), 1 symbol library, 1 model file(s), the board, 2 schematic(s)"]))
     CASES.append(("kfp vendor result", vend[:-1] + [os.path.join(vp, 'erc0.json')], 0,
                   ["nothing outside the repo: already self-contained"]))
     CASES.append(("kpcb zoneshape lint", ['kpcb.py', fz, 'zoneshape'], 0,
@@ -2312,7 +2349,15 @@ def main(pick=(), listing=False, keep=False):
                   ["F.Cu/B.Cu by net, fills included, GND grey", "largest: P "]))
     CASES.append(("kpcb tracks deadend", ['kpcb.py', db, 'tracks', '--kind', 'deadend'], 0,
                   ["dead branches (no pad)    2 visible", "F.Cu/B.Cu 16.2 mm, 2 via, 6 mm2 pour off F.Cu track; ripup --deadend",
-                   "df1 df2 db2 db1", "zone zband", "F.Cu 1.5 mm          off TP2.1; ripup --deadend", "cut live"]))
+                   "df1 df2 db2 db1", "zone zband", "F.Cu 1.5 mm          off TP2.1; ripup --deadend", "cut live",
+                   "KiCad's Cleanup takes none of it (every end of it joins something); ripup --deadend takes it all",
+                   "KiCad's Cleanup takes live whole (it cannot cut a track back) and 2 more it then leaves dangling"]))
+    sb = attach_stub_board(tmp.name)
+    CASES.append(("kpcb tracks deadend attach stub", ['kpcb.py', sb, 'tracks', '--kind', 'deadend'], 0,
+                  ["F.Cu 4.0 mm          off F.Cu track; ripup --deadend", "KiCad's Cleanup takes all of it and 1 more it "
+                   "then leaves dangling: sstub"]))
+    CASES.append(("kpcb ripup --deadend attach stub", ['kpcb.py', sb, 'ripup', '--deadend', '-o', T('astub2.kicad_pcb')], 0,
+                  ["2 item(s) deleted (1 more pruned as dangling), 0 cut back"]))
     CASES.append(("kpcb check DEADCU", ['kpcb.py', db, 'check', '--only', 'DEADCU'], 0,
                   ["[WARN] DEADCU", "P F.Cu 1.5 mm off TP2.1 @16.00,5.00 serves no pad - `ripup --deadend P`"]))
     CASES.append(("kpcb net dead branch", ['kpcb.py', db, 'net', 'P'], 0,
@@ -2441,9 +2486,10 @@ def main(pick=(), listing=False, keep=False):
                                           '(symbol "Q_1_0_1"', '(property "Footprint" "p:R"', '(property "MPN"'))
                    and vl.count('\t(symbol "S"') == 1 and 'ext:R' not in vl and 'lib_name' not in vs
                    and all(x in vs for x in ('(symbol "ps:Q"', '(symbol "ps:Q_1"', '(lib_id "ps:Q_1")', '(symbol "ps:S"'))
-                   and vs.count('"p:R"') == 4 and '(lib_id "Device:R")' in vs,
+                   and vs.count('"p:R"') == 4 and '(lib_id "Device:R")' in vs
+                   and '"ext:R"' in open(os.path.join(vp, 'orig', 'v.kicad_sch')).read(),
                    "kfp vendor symbols: cached copies in ps (Reference prefix, units named, footprint re-pointed in "
-                   "library and cache), S replaced once, lib_id/lib_name re-pointed, Device:R untouched")
+                   "library and cache), S replaced once, lib_id/lib_name re-pointed, Device:R untouched, orig/ backup untouched")
     rc2 = open(os.path.join(tmp.name, 'silkart', 'rc2.kicad_pcb')).read() if os.path.exists(
         os.path.join(tmp.name, 'silkart', 'rc2.kicad_pcb')) else ''
     fails += check('(render_cache "RC"' in rc2 and '(xy 6 16.5) (xy 8 16.5)' in rc2.replace('\n\t\t\t\t\t', ' ')
@@ -2462,6 +2508,12 @@ def main(pick=(), listing=False, keep=False):
     sys.path.insert(0, S)
     import kpcb_board, kpcb_edit
     kpcb_board.Board.warn_rules = lambda self: None              # fixtures have no project rules; the CLI case checks it
+    import kfp_vendor, kfp_diff, kcommon
+    fid = lambda pad: kfp_diff.canon(kcommon.parse_sexp(f'(footprint "F" (layer "F.Cu") {pad})'))   # noqa: E731
+    lib = fid('(pad "" smd circle (at 0 0) (size 1 1) (layers "F.Cu") (property pad_prop_fiducial_glob))')
+    fails += check(not kfp_vendor._adds(lib, fid('(pad "" smd circle (at 0 0) (size 1 1) (layers "F.Cu"))'))
+                   and kfp_vendor._adds(lib, fid('(pad "" smd circle (at 0 0) (size 1.2 1.2) (layers "F.Cu"))')),
+                   "kfp vendor stock rank: a board pad that only lacks a stock field is stale, a resized one a local fix")
     import kpcb_freebox
     ab = kpcb_board.Board(sab)
     rcb = next(x['box'] for x in ab.silktexts if x['text'] == 'RC')
@@ -2526,7 +2578,7 @@ def main(pick=(), listing=False, keep=False):
     ok6 = 0.95 < r < 1.1 and kpcb_amp.dt_ipc(kpcb_amp.ipc_current(0.3, 0.035, True, 10), 0.3, 0.035, True) - 10 < 1e-6
     fails += check(ok6, f"ampacity rise model: rod {r:.2f} C, IPC inverse round-trip")
     # cache_prune: past the cap the oldest entries go, and a plot directory goes whole
-    import kcommon, kmerge
+    import kmerge
     pd, keep = os.path.join(tmp.name, 'cache'), kcommon.CACHE
     os.makedirs(os.path.join(pd, 'svg', 'old'))
     for i, f in enumerate(('svg/old/a.svg', 'svg/old/b.svg', 'old.bin', 'new.bin')):

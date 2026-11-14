@@ -8,7 +8,8 @@ board's instances differ, the first is written and the rest named). Every 3D mod
 outside the repo (on any footprint) is copied into DIR (default: where the repo's models
 already live, else lib/3dmodels) with its .step/.wrl siblings, its path written as
 ${KIPRJMOD}/... Lib IDs move to NICK on the board and in every schematic's Footprint field,
-so Update PCB keeps them; NICK goes into the project fp-lib-table if missing.
+so Update PCB keeps them (the sheets of the root hierarchy, not every .kicad_sch below the
+project); NICK goes into the project fp-lib-table if missing.
 
 Dry run by default: it prints every copy and edit. --apply writes them in place (refused while
 KiCad holds the project, like kproj; --force overrides). A model file already in DIR that
@@ -17,12 +18,12 @@ differs is never overwritten: that path stays as it was. Then prove nothing else
 ids and model paths). Symbols the same way (see _sym_plan): from a library outside the repo or
 edited in the schematic, the cached copy goes into --symlib NICK. Also listed: what Update
 Footprint from a stock library would change, by direction:
-library-only items (stock moved on: worth pulling), board-only items (a local fix it would
+library-only items (stock moved on, or a stale copy lacking them: worth pulling), board-only items (a local fix it would
 undo), or both."""
 import filecmp, glob, json, os, re, shutil, subprocess, tempfile
 from collections import Counter
 from kcommon import (_lib_table, _global_cfg, expand_vars, fp_lib_dirs, kicad_cli, kicad_env, kicad_running, natkey,
-                     project_root, refrange)
+                     project_root, refrange, sch_files, top_level_sheets)
 from kfp import board_spans, dump, lib_copy, load, proj_of, q, u
 from kfp_diff import canon
 
@@ -231,8 +232,20 @@ def c_vendor(a):
 
 
 def _schematics(proj):
-    return [p for p in sorted(glob.glob(os.path.join(proj, '**', '*.kicad_sch'), recursive=True))
-            if '-backups' not in p and not os.path.basename(p).startswith(('_autosave', '~'))]
+    """the project's sheets: its root and top-level sheets, then every Sheetfile they pull in,
+    each relative to the sheet naming it (as eeschema loads them). Not every .kicad_sch under
+    the directory: a backup copy in ./orig/ is not the design, and --apply would edit it."""
+    todo = [os.path.join(proj, fn) for fn in dict.fromkeys([project_root(proj)] + [f for f, _n in top_level_sheets(proj)])
+            if fn] or sch_files(proj)
+    out = []
+    while todo:
+        p = os.path.normpath(todo.pop(0))
+        if p in out or not os.path.isfile(p):
+            continue
+        out.append(p)
+        with open(p, encoding='utf-8', errors='replace') as fh:
+            todo += [os.path.join(os.path.dirname(p), m) for m in re.findall(r'\(property "Sheetfile" ' + _STR, fh.read())]
+    return sorted(out)
 
 
 def _blocks(txt, ind, lo=0, hi=None):
@@ -470,11 +483,27 @@ def _other_stock(cur):
     return [d for p in pats for d in glob.glob(p) if os.path.realpath(d) != os.path.realpath(cur or '')]
 
 
+def _adds(L, B):
+    """does board copy B (a canon) hold anything library copy L lacks? A board pad that only
+    misses fields its library twin has (same number, the rest equal: a fiducial without
+    pad_prop_fiducial_glob) adds nothing"""
+    if any(sum((B[c] - L[c]).values()) for c in ('shapes', 'zones', 'type')):
+        return True
+    lib = list((L['pads'] - B['pads']).elements())
+    for n, kv in (B['pads'] - L['pads']).elements():
+        twin = next((x for x in lib if x[0] == n and set(kv) < set(x[1])), None)
+        if twin is None:
+            return True
+        lib.remove(twin)
+    return False
+
+
 def _stock_rank(a, proj, use, where, dirs):
-    """stock footprints whose library file differs from the board copy. Direction comes from a
-    second stock version (another KiCad install): the board equal to the older file = stock
-    moved on (worth pulling); both stock files equal and the board not = a local fix that
-    Update Footprint would undo. Only one stock version: just what differs."""
+    """stock footprints whose library file differs from the board copy. A board copy that only
+    lacks what stock has (nothing board-only) is stale: worth pulling. Else direction comes
+    from a second stock version (another KiCad install): the board equal to the older file =
+    stock moved on (worth pulling); both stock files equal and the board not = a local fix
+    that Update Footprint would undo. Only one stock version: just what differs."""
     from kfp import read_mod
     rows = []
     others = _other_stock(kicad_env(proj)['_stock'].get('FOOTPRINT'))
@@ -499,6 +528,7 @@ def _stock_rank(a, proj, use, where, dirs):
                 for p in [os.path.join(o, os.path.basename(d), fpid.partition(':')[2] + '.kicad_mod')] if os.path.isfile(p)]
         cmp = lambda X, Y: all(X[c] == Y[c] for c in ('pads', 'shapes', 'zones', 'type'))   # noqa: E731
         v = ('worth pulling: the board matches the other install\'s older stock copy' if any(cmp(B, O) for O in olds) else
+             'stale: the board copy only lacks what stock has, nothing board-only: worth pulling' if not _adds(L, B) else
              'a local fix, stock unchanged: Update Footprint would undo it' if olds and all(cmp(L, O) for O in olds) else
              'both moved: stock changed and the board differs from either' if olds else
              'differs (one stock version installed, direction unknown)')

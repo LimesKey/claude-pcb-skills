@@ -366,7 +366,7 @@ class Exact:
                 if p['drill']:
                     self.disks.append(((p['x'], p['y']), p['drill'] / 2 + hc['npth' if p['kind'] == 'np_thru_hole' else 'pth']))
                 if p['kind'] != 'np_thru_hole' and on_layer(p, ly):
-                    self.pads.append((p, clr(net, p['net'], 'track', 'pad', ly)))
+                    self.pads.append((p, clr(net, p['net'], 'track', 'pad', ly, o2=p['lclr'])))
         for fl in b.fills:
             if fl['layer'] == ly and fl['net'] != net and (fl['net'], ly) not in planes and near(fl['bbox']):
                 self.fills.append((_pidx(b, fl), clr(net, fl['net'], 'track', 'zone', ly)))

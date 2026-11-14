@@ -628,17 +628,20 @@ def cut_off(b, kill, absent):
     return out
 
 
-def prune(b, kill, absent=frozenset(), planes=True):
+def prune(b, kill, absent=frozenset(), planes=True, test=()):
     """kill (ids of b.tracks/b.vias to delete) grown by what that leaves dangling: a track
     end touching nothing of its net (no pad, via, track junction or fill), a via joining
     fewer than two layers - spreading only from removed copper (and the pads of `absent`
     parts, which anchor nothing), until stable - then by what it leaves serving no pad
     (_newly_dead: a cycle hanging off one point, a plane stub ending in its fill; planes=False
-    leaves the plane stubs to a later call). Returns the grown set."""
+    leaves the plane stubs to a later call). test [('t'|'v', item)]: copper to test as it lies,
+    nothing removed first - with kill empty, KiCad's own dangling pass over that copper (a
+    deadend row: what Cleanup takes of it), so no _newly_dead: KiCad keeps a cycle whose every
+    end joins something. Returns the grown set."""
     from kpcb_board import PolyIndex
     kill = set(kill)
     nets = {o['net'] for o in b.tracks + b.vias if id(o) in kill} | \
-        {p['net'] for f in b.fps.values() if f.ref in absent for p in f.pads if p['net']}
+        {p['net'] for f in b.fps.values() if f.ref in absent for p in f.pads if p['net']} | {o['net'] for _k, o in test}
     # prune: per affected net, drop dangling copper until nothing changes
     fills = defaultdict(list)
     for fl in b.fills:
@@ -671,7 +674,8 @@ def prune(b, kill, absent=frozenset(), planes=True):
     # only copper touching what went can newly dangle: an old stub elsewhere on GND is not ours
     frontier = [('t', t) for t in b.tracks if id(t) in kill] + [('v', v) for v in b.vias if id(v) in kill] + \
         [('p', p) for f in b.fps.values() if f.ref in absent for p in f.pads if p['net'] in nets]
-    while frontier:
+    first = {id(o): (k, o) for k, o in test}         # tested themselves, first round only: not their neighbours
+    while frontier or first:
         live = [('t', t) for t in b.tracks if t['net'] in nets and id(t) not in kill and t['w'] > 0] + \
                [('v', v) for v in b.vias if v['net'] in nets and id(v) not in kill]
         G = defaultdict(list)                        # (net, cx, cy) -> items, 1 mm cells
@@ -687,21 +691,29 @@ def prune(b, kill, absent=frozenset(), planes=True):
                         yield x
         cand = {id(x[1]): x for f0 in frontier for x in near(f0[1]['net'], box_of(f0))     # touching it, not
                 if x[0] != 'p' and (on(x) & on(f0)) and _touch(x, f0)}                    # merely its box
+        cand.update(first)
+        first = {}
         dead = []
         for it in cand.values():
             k, o = it
             net = o['net']
             if k == 't':
-                for e in (o['a'], o['b']):
-                    if any(e in idx for idx in fills.get((net, o['layer']), ())):
+                ends, hw = (o['a'], o['b']), o['w'] / 2
+                got = {i for i, e in enumerate(ends) if any(e in idx for idx in fills.get((net, o['layer']), ()))}
+                # KiCad's TestTrackEndpointDangling: one item over BOTH ends credits only the nearer
+                # (getMinDist) - a 31 um stub lying in the via and track it hung off dangles once its
+                # branch goes (reference board -BATT, checked in the 10.99 GUI 2026-11-13)
+                for x in near(net, (min(e[0] for e in ends) - hw, min(e[1] for e in ends) - hw,
+                                    max(e[0] for e in ends) + hw, max(e[1] for e in ends) + hw)) if len(got) < 2 else ():
+                    if x[1] is o or o['layer'] not in on(x):
                         continue
-                    stub = ('t', {'layer': o['layer'], 'w': o['w'], 'a': e, 'b': e})
-                    hw = o['w'] / 2
-                    other = o['b'] if e is o['a'] else o['a']
-                    if not any(x[1] is not o and o['layer'] in on(x) and
-                               (_joins(o, e, other, x[1]) if x[0] == 't' else _touch(stub, x))
-                               for x in near(net, (e[0] - hw, e[1] - hw, e[0] + hw, e[1] + hw))):
-                        dead.append(it); break
+                    hit = [_joins(o, e, f, x[1]) if x[0] == 't' else _touch(('t', {'layer': o['layer'], 'w': o['w'], 'a': e, 'b': e}), x)
+                           for e, f in (ends, ends[::-1])]
+                    got |= {int(_min_dist(x, ends[0]) >= _min_dist(x, ends[1]))} if all(hit) else {i for i in (0, 1) if hit[i]}
+                    if len(got) == 2:
+                        break
+                if len(got) < 2:
+                    dead.append(it)
             else:                                    # KiCad: a via must join two or more LAYERS
                 lys = via_layers(o, cu)
                 got = set()
@@ -714,7 +726,7 @@ def prune(b, kill, absent=frozenset(), planes=True):
                     dead.append(it)
         kill |= {id(x[1]) for x in dead}
         frontier = dead
-    return kill | _newly_dead(b, kill, absent, nets, planes)
+    return kill if test else kill | _newly_dead(b, kill, absent, nets, planes)
 
 
 def _newly_dead(b, kill, absent, nets, planes=True):
@@ -759,6 +771,12 @@ def tear_edits(t, trk):
                 out.append(t.edits[-1])
                 break
     return out
+
+
+def _min_dist(x, pt):
+    """KiCad's getMinDist: a track's nearer endpoint, else the item's position"""
+    k, o = x
+    return min(math.dist(o['a'], pt), math.dist(o['b'], pt)) if k == 't' else math.dist((o['x'], o['y']), pt)
 
 
 def _joins(t, e, other, u):

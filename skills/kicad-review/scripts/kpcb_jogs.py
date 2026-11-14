@@ -132,7 +132,7 @@ def blockers(b, net, ly, w, loc, clr=None):
     for f in b.fps.values():
         for p in f.pads if f.placed else ():
             if p['net'] != net and on_layer(p, ly) and \
-                    any(seg_pad_dist(s0, s1, p) < w / 2 + clr(net, p['net'], 'track', 'pad', ly) for s0, s1 in segs):
+                    any(seg_pad_dist(s0, s1, p) < w / 2 + clr(net, p['net'], 'track', 'pad', ly, o2=p['lclr']) for s0, s1 in segs):
                 out.append(('pad', (f.ref, p['num'])))
     return out
 

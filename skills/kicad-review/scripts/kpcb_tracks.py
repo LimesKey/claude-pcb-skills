@@ -369,6 +369,31 @@ def _collinear(t1, t2):
     return L > 0 and all(2 * (p * x + r * y + k) ** 2 < 3 * L for x, y in (_nm(c['a']), _nm(c['b'])))
 
 
+def kicad_takes(b, d):
+    """'' when KiCad's Cleanup dangling pass ("Delete tracks unconnected at one end", "vias
+    connected on only one layer") takes exactly dead branch d, else what it takes instead:
+    it stops where every end joins something (a pour, a cycle), deletes a track it would need
+    to cut back whole, and takes what that leaves - an attach stub lying in what it hung off
+    (ripup's prune, run over d as it lies: the reference board's +BATT and -BATT rows matched
+    the 10.99 GUI item for item, 2026-11-13)"""
+    from kpcb_edit import prune
+    row = [('t', t) for t, _mm, keep in d['tracks'] if keep is None] + [('v', v) for v in d['vias']]
+    cuts = [t for t, _mm, keep in d['tracks'] if keep is not None]
+    k = prune(b, set(), test=row + [('t', t) for t in cuts])
+    took, cut = sum(id(o) in k for _k, o in row), [t for t in cuts if id(t) in k]
+    mine = {id(o) for _k, o in row} | {id(t) for t in cuts}
+    extra = [o for o in b.tracks + b.vias if id(o) in k and id(o) not in mine]
+    if took == len(row) and not cut and not extra:
+        return ''
+    parts = [('all of it' if took == len(row) else
+              "none of it (every end of it joins something)" if not took else
+              f"{took} of its {len(row)}" + (' (its pour holds the rest)' if d['fills'] else ''))] if row else []
+    parts += [f"{' '.join(t['uuid'][:8] for t in cut)} whole (it cannot cut a track back)"] if cut else []
+    parts += [f"{len(extra)} more it then leaves dangling: {' '.join(o['uuid'][:8] for o in extra[:8])}"] if extra else []
+    return ("KiCad's Cleanup takes " + ', '.join(parts[:-1]) + (' and ' if len(parts) > 1 else '') + parts[-1]
+            + ('; ripup --deadend takes it all' if took < len(row) else ''))
+
+
 def cleanup_rows(b, ix, skip, dead=frozenset()):
     """what KiCad's Tools -> Cleanup Tracks & Vias would change, predicted from
     pcbnew/tracks_cleaner.cpp (10.99 g8304096633, checked in the GUI 2026-11-13: it cannot run
@@ -602,6 +627,9 @@ def c_tracks(b, a):
             if k == 'deadend':
                 from kpcb_copper import dead_uuids
                 print(f"      {' '.join(dead_uuids(r[6]))}")
+                kc = kicad_takes(b, r[6])
+                if kc:
+                    print(f"      {kc}")
             shown.append(r)
         if len(rs) > a.max:
             print(f"  ... +{len(rs) - a.max} more - raise --max")
