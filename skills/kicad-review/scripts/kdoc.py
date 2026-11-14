@@ -685,11 +685,16 @@ def _doc_and_page(a):
         if len(a.args) > 1 or not (a.args or a.doc):
             raise SystemExit("with -p give the doc once: 'kdoc.py text DOC -p 3-5' or '-d DOC text -p 3-5'")
         return (a.args[0] if a.args else a.doc), sorted(a.pages)
+    def pos(tok):                                     # 'text DOC 5-7' reads like '-p 5-7'
+        try:
+            return sorted(_pageset(tok))
+        except ValueError:
+            raise SystemExit(f"bad page {tok!r}: give N, N-M or N,M")
     if len(a.args) >= 2:
-        return a.args[0], [_pagenum(a.args[1])]
+        return a.args[0], pos(a.args[1])
     if len(a.args) == 1:
         if getattr(a, 'doc', None):
-            return a.doc, [_pagenum(a.args[0])]
+            return a.doc, pos(a.args[0])
         raise SystemExit(
             "need a doc and a page: 'kdoc.py page DOC N' or 'kdoc.py -d DOC page N'")
     raise SystemExit("need a page number")

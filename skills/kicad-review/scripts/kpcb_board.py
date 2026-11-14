@@ -434,6 +434,9 @@ class Zone(tuple):
         z.__dict__.update(kw)
         return z
 
+    net = property(lambda z: z[0])
+    layers = property(lambda z: z[1])
+
 
 class Board:
     def __init__(self, path):

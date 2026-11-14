@@ -227,6 +227,23 @@ def box_arg(multi=False):
         return ';'.join(out)
     return f
 
+def doc_for(doc, cmd):
+    """the docstring's entries for CMD (`  tool.py [FILE] CMD ...` plus its deeper-indented
+    continuation lines), else the whole docstring"""
+    out, keep = [], None
+    for ln in doc.splitlines():
+        ind, tok = len(ln) - len(ln.lstrip()), ln.split()
+        if tok and tok[0].endswith('.py'):
+            keep = ind if cmd in tok[1:3] else None
+        elif keep is not None and (not tok or ind <= keep):
+            keep = None
+        if keep is not None:
+            out.append(ln)
+    if not cmd or not out:
+        return doc
+    return '\n'.join(out) + f"\n\n(`{os.path.basename(sys.argv[0])} --help` lists every command and flag)"
+
+
 def parse_args(ap, argv=None, known=False):
     """ap.parse_args(), except a dash + uppercase token that is none of ap's options
     (`-BATT`, `-VIN`) is read as a value: `knet net -BATT` and `kpcb ampacity --net
@@ -236,6 +253,11 @@ def parse_args(ap, argv=None, known=False):
     argv = list(sys.argv[1:] if argv is None else argv)
     opts = ap._option_string_actions
     stop = argv.index('--') if '--' in argv else len(argv)
+    if not ap.add_help and {'-h', '--help'} & set(argv[:stop]):  # before the required positionals refuse it
+        cmds = next((x.choices for x in ap._actions if x.dest == 'cmd' and x.choices), ())
+        print(doc_for(sys.modules['__main__'].__doc__ or ap.format_help(),
+                      next((t for t in argv[:stop] if t in cmds), None)))
+        sys.exit(0)
     argv = [_NUL + t if i < stop and _DASHVAL.match(t) and t not in opts and t[:2] not in opts else t
             for i, t in enumerate(argv)]
     try:                          # positionals may follow options: `net X --max 3 Y`

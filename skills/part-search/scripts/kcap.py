@@ -541,10 +541,9 @@ def main():
     ap.add_argument('-n', dest='n', type=int, default=8, help='solve: result rows')
     ap.add_argument('--fresh', action='store_true')
     ap.add_argument('--json', action='store_true')
-    ap.add_argument('-h', '--help', action='store_true')
-    a = ap.parse_args()
-    if a.help:
+    if {'-h', '--help'} & set(sys.argv[1:]):           # before `cmd` is required
         print(__doc__); return 0
+    a = ap.parse_args()
     if a.vop is None:
         print("give --vop (the actual operating voltage this part sees)"); return 1
     try:

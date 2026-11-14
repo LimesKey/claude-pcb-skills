@@ -3,6 +3,16 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review + part-search - papercuts mined from a month of the reference project's sessions (3840 tool
+      calls). Done: (1) `-h`/`--help` failed with "the following arguments are required" on knet, kpcb, kdoc and
+      kcap unless FILE and CMD were both given (~17 wasted calls); `kcommon.parse_args` now answers it first for
+      the add_help=False parsers, and `TOOL FILE CMD -h` prints only CMD's docstring entries (`doc_for`). (2)
+      kpcb's docstring lacked review, sync, zones, ampacity, vias, copper, edit, fatten, stitch. (3) `kdoc.py text
+      DOC 5-7` raised ValueError (only `-p 5-7` took a range) and a bad page token crashed `_pagespan`; the
+      positional page goes through `_pageset`. (4) `kpcb summary` printed one line per zone (101 of 136 lines on
+      the reference board): one line per layer, net xN. (5) recipes.md's ad-hoc import says which fields are
+      attributes and which dict keys (`b.fps['C29']['pads']` and `zone.net` crashed inline scripts), and `Zone`
+      has `.net` / `.layers`. 2026-11-14.
 - [x] kicad-review/kpcb - `tracks --kind cleanup` GUI check, follow-ups. Done: (1) reran the 341e42d~1 board in
       10.99 with "Refill zones" ticked (KiCad asked to refill out-of-date fills: yes) and "inside pads" off: the same
       result as the unticked runs, 0 merges, the same 12 tracks + 2 vias deleted; the refill only regenerated one

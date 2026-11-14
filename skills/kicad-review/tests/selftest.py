@@ -59,6 +59,10 @@ CASES = [
     ("knet walk",    ['knet.py', NET, 'walk', '/DANGLE'],       0, ["R2.2", "DNP"]),
     ("knet usage",   ['knet.py', NET, 'path', 'U1'],            1, ["usage: knet.py FILE path R13 U2"]),   # was an IndexError
     ("kdoc usage",   ['kdoc.py', 'near', 'x'],                  1, ["usage: kdoc.py near 'bias-t' 'resistor'"]),
+    # -h before the required positionals: was "the following arguments are required"
+    ("knet help",    ['knet.py', '--help'],                     0, ["knet.py v3"]),
+    ("kpcb help cmd", ['kpcb.py', PCB, 'where', '-h'],          0, ["kpcb.py FILE where U8 J7", "lists every command"]),
+    ("kpcb summary zones", ['kpcb.py', PCB2, 'summary'],        0, ["zones  : 1 ", "  F.Cu    GND"]),
     ("knet draw",    ['knet.py', NET, 'draw', 'U1', '-d', '2', '-o', svg1], 0, []),
     ("ksch render",  ['ksch.py', 'render', '-o', svg2, KSCH],   0, []),   # + no ERROR (checked below)
     ("kdrc selftest", ['kdrc.py', '--selftest'],                0, [" passed"]),     # the count moves; its exit code gates it
@@ -2759,8 +2763,9 @@ def main(pick=(), listing=False, keep=False):
     with contextlib.redirect_stdout(io.StringIO()):
         kdoc.c_prune(argparse.Namespace(doc=None))
     ok14 &= kdoc.docs() == ['X1_txt']
+    ok14 &= kdoc._doc_and_page(argparse.Namespace(pages=None, doc=None, args=['X1', '5-7'])) == ('X1', [5, 6, 7])
     fails += check(ok14, f"kdoc same-basename slots {os.path.basename(ka)}, {os.path.basename(kb)}; -p sets; "
-          "a replaced source drops stale pages; prune drops the deleted one")
+          "a replaced source drops stale pages; prune drops the deleted one; `text DOC 5-7`")
     # kcommon.parse_args: dash + uppercase tokens that are not options are values;
     # real options, attached short values and negative numbers are untouched.
     # kicad_running sees a KiCad lock file in the project dir.

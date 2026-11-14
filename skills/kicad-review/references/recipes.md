@@ -7,9 +7,12 @@ parentheses or regex a KiCad file:
 import sys; sys.path.insert(0, '<skill>/scripts')
 from kcommon import load_sexp, kids, kid, val, Netlist   # parse_sexp(text) for a string
 from kpcb_board import Board
-b = Board('board.kicad_pcb')   # b.fps[REF]: x y rot layer value pads[{num net x y w drill}] crtyd;
-                                 # b.tracks[{net layer w a b len}] b.vias[{net size drill x y layers}]
-                                 # b.zones b.fills[{net layer pts area}] b.copper b.stack b.outline
+b = Board('board.kicad_pcb')   # b.fps[REF] is an object: .x .y .rot .layer .value .back .crtyd
+                                 #   .pads is a list of dicts: p['num'] p['net'] p['x'] p['y'] p['w'] p['drill']
+                                 # dicts: b.tracks[i]['net' 'layer' 'w' 'a' 'b' 'len' 'uuid']
+                                 #   b.vias[i]['net' 'size' 'drill' 'x' 'y' 'layers'], b.fills[i]['net' 'layer' 'pts' 'area']
+                                 # b.zones[i]: net, layers = z (also z.net z.layers z.outline z.uuid z.keepout)
+                                 # b.copper b.stack b.outline
 nl = Netlist('board-merged.net')  # nl.comps[REF] nl.nets[NET] -> [{ref pin}] nl.cpins[REF][PIN] -> NET
 t = load_sexp('charger.kicad_sch'); [kid(s, 'at') for s in kids(t, 'symbol')]
 ```

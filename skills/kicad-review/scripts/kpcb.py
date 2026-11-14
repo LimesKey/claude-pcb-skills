@@ -13,6 +13,10 @@ Indexes built from the board file:
   outline  Edge.Cuts segments + closed rings, for inside/outside and clearance
 
 Commands:
+  kpcb.py FILE review                 fresh session: sync + summary + check + span, then
+                                      the next calls to make
+  kpcb.py FILE sync                   is the board the netlist's circuit (run before quoting
+                                      any placement finding)
   kpcb.py FILE summary                board size, stackup, what is placed, per sheet
   kpcb.py FILE check                  rule-based placement review (see RULES)
   kpcb.py FILE where U8 J7            position, courtyard, edge distance, neighbours
@@ -31,6 +35,13 @@ Commands:
                                       also print the distance between them
   kpcb.py FILE net NET                every pad on a net (absolute xy), copper per
                                       layer, vias, zones, extent
+  kpcb.py FILE zones [--voids]        pour fill coverage per copper layer (--voids: islands
+                                      KiCad removed, where a stitching via rescues one)
+  kpcb.py FILE ampacity [NET..] [--amps A]   IPC-2221 current vs the routed copper + vias;
+                                      `--from PAD --to PAD`: the path's current split (--fills)
+  kpcb.py FILE vias                   via sizes, drills, aspect ratio, per net
+  kpcb.py FILE copper X0,Y0,X1,Y1     tracks, vias, zones in a box (or X,Y -r R), with the
+                                      uuids `edit` takes (--net, --layers)
   kpcb.py FILE height [REF...]        3D model height per part + the Z stack (cell +
                                       board + tallest part over it), via KiCad's GLB
                                       export of the STEP models; no model = UNKNOWN
@@ -62,6 +73,12 @@ Writers (always to a new file, -o OUT; verify the copy with kdrc.py):
   kpcb.py FILE fixlines -o OUT        undo the 10.99 fp_line frame bug (KiCad draws the
                                       silk/courtyard/fab lines near the page origin)
   kpcb.py FILE renet -o OUT           netless tracks/vias take the one net their ends touch
+  kpcb.py FILE edit OP.. -o OUT       hand edits by uuid (width, del, seg, via, mvvia, dragvia,
+                                      vcenter, solid, simplify, unround); `edit` alone lists them
+  kpcb.py FILE fatten NET.. --amps A -o OUT   same-net pour bands round only the tracks too
+                                      thin for A (or --width W)
+  kpcb.py FILE stitch NET [X,Y] -o OUT   legal via spots on a net's copper (--sparse T: the
+                                      worst-stitched outer pour first)
   kpcb.py FILE move REF X Y [ROT] -o OUT   re-place a footprint (--flip: to the other side;
                                       --no-drag: KiCad's Move, tracks and in-pad vias stay)
   kpcb.py FILE ripup NET.. | --drc R.json -o OUT   delete tracks/vias (KiCad-flagged or by net,
@@ -203,8 +220,14 @@ def c_summary(b, a):
     print(f"copper : {len(b.copper)} layers  {' '.join(b.copper)}")
     print("origins: " + '  '.join(f"{k} {x:g},{y:g}" for k, (x, y) in b.origins.items() if k != 'page')
           + "   (`where --origin grid|aux` quotes what KiCad's Properties dialog shows)")
+    by = defaultdict(Counter)                   # one line per layer: a poured board has ~100 zones
     for n, l in b.zones:
-        print(f"zone   : {n:<10} {' '.join(l)}")
+        for L in l:
+            by[L][n] += 1
+    if b.zones:
+        print(f"zones  : {len(b.zones)}   (`zones` for fill coverage, `--json` for each one)")
+    for L in sorted(by, key=lambda L: (b.copper.index(L) if L in b.copper else 99, L)):
+        print(f"  {L:<7} " + '  '.join(n + (f" x{c}" if c > 1 else '') for n, c in sorted(by[L].items())))
     if b.teardrops:
         print(f"teardrops: {len(b.teardrops)} (zone-type fillets, left out of every pour figure)")
     front = sum(1 for f in P if not f.back)
