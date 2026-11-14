@@ -399,6 +399,10 @@ class FP:
     def get(self, k, d=None):
         return getattr(self, k, d)
 
+    def __repr__(self):                         # print(fp) in an ad-hoc script says what it is
+        return (f'FP({self.ref} {self.value!r} {self.layer} {self.x:.3f},{self.y:.3f} '
+                f'r{self.rot:g}, {len(self.pads)} pads)')
+
     @property
     def outline(self):
         """courtyard as closed rings: the real CrtYd shape when it chains, else

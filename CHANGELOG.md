@@ -3,6 +3,11 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review - the ad-hoc query import and its data model (FP, pad, track, via, fill, zone and
+      Netlist fields) moved from recipes.md into SKILL.md, so they load with the skill: usage.py found 235
+      inline scripts in 65 sessions, many opening with a `dir()` probe, while recipes.md was read 5 times.
+      `print(fp)` shows ref, value, layer, position and pad count instead of `<FP object>`; selftest checks
+      it. 2026-11-14.
 - [x] kicad-review/kpcb - what a month of inline library scripts kept re-deriving (~200 in the reference
       project's use sessions, 1 in 10 raising). Done: `where REF --pads` lists every copper pad (num, xy, layers,
       size, rot, pin, net; `--origin` applies); `net NET` adds one `zonedef` line per zone (uuid, priority, layers,

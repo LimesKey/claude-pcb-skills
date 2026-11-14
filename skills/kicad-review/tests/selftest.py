@@ -2557,6 +2557,9 @@ def main(pick=(), listing=False, keep=False):
     ok7 &= all(abs(q['x'] - (2 * f.x - p['x'])) < 1e-9 and abs(q['y'] - p['y']) < 1e-9 and fb.fps[r].back != f.back
                for r, f in bb.fps.items() for p, q in zip(f.pads, fb.fps[r].pads))
     fails += check(ok7, "writers: flip / move+rotate round trips exact, flipped pads mirrored")
+    f0 = next(iter(bb.fps.values()))
+    fails += check(repr(f0).startswith(f'FP({f0.ref} ') and f'{len(f0.pads)} pads)' in repr(f0),
+                   "FP repr: ref, value, layer, position, pad count (what an ad-hoc print shows)")
     # router: a GND plane is passable at a cost, another net's pour (a power island) is
     # copper - a route through it would split it (the reference board's PPHV went 3 -> 5 pieces)
     import kpcb_route

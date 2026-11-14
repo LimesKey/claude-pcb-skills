@@ -145,8 +145,32 @@ scrambled. The plot only tells you which sheet a symbol lives on.
 | what does the datasheet say | `kdoc.py grep 'Y' --count` to pick the page, then grep with context |
 
 More in [references/recipes.md](references/recipes.md), including the self-test to
-run after editing any tool, and the 5-line import for an ad-hoc query (Board,
-Netlist, load_sexp) - never re-implement paren matching in an inline script.
+run after editing any tool.
+
+## Ad-hoc queries (no command answers it)
+
+Import the parsers; never hand-match parentheses or regex a KiCad file. The data
+model is below, so the script needs no `dir()` probe first:
+
+```python
+import sys; sys.path.insert(0, '<skill>/scripts')
+from kcommon import load_sexp, kids, kid, val, Netlist   # parse_sexp(text) for a string
+from kpcb_board import Board
+b = Board('board.kicad_pcb')
+# b.fps[REF]: FP object, fp.x or fp['x']: ref value fp layer x y rot back dnp pads crtyd
+#   (bbox) outline area models lcsc mpn fields uuid; print(fp) gives a one-line summary
+# fp.pads[i] dict: num net x y sx sy (size) shape kind type drill layers
+# b.tracks[i] dict: net layer w a b len uuid locked   b.vias[i] dict: net size drill x y layers uuid
+# b.fills[i] dict: net layer pts area zone   b.zones[i]: net, layers = z (+ .outline .priority
+#   .keepout .name .uuid)   also b.copper b.stack b.outline b.edge_segs b.teardrops b.silktexts
+nl = Netlist('board-merged.net')
+# nl.comps[REF] dict: value footprint props lcsc dnp in_bom sheet description
+# nl.nets[NET] -> [{ref pin fn type}]   nl.cpins[REF][PIN] -> NET
+t = load_sexp('sheet.kicad_sch'); [kid(s, 'at') for s in kids(t, 'symbol')]
+```
+
+Before writing one, check the table above once more: a question that needs an inline
+script twice deserves a command (log it in the backlog).
 
 ## Hard rules
 
