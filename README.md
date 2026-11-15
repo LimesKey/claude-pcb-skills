@@ -164,6 +164,7 @@ skills/
 agents/pcb-reviewer.md
 tools/verify.sh        every check a change must pass
 tools/pack.sh          dist/*.skill bundles for claude.ai
+tools/usage.py         how sessions used the tools, from Claude Code's transcripts
 CHANGELOG.md           what landed
 CLAUDE.md              rules for working on the skills
 ```

@@ -61,6 +61,7 @@ CASES = [
     ("kdoc usage",   ['kdoc.py', 'near', 'x'],                  1, ["usage: kdoc.py near 'bias-t' 'resistor'"]),
     # -h before the required positionals: was "the following arguments are required"
     ("knet help",    ['knet.py', '--help'],                     0, ["knet.py v3"]),
+    ("knet summary next", ['knet.py', NET, 'summary'],          0, ["R      4  next R5    R1-R4"]),
     ("kpcb help cmd", ['kpcb.py', PCB, 'where', '-h'],          0, ["kpcb.py FILE where U8 J7", "lists every command"]),
     ("kpcb where --pads", ['kpcb.py', PCB, 'where', 'U1', '--pads'], 0, ["    2     11.500, 11.500  F      0.50x0.60 rot 0  GND"]),
     ("kpcb summary zones", ['kpcb.py', PCB2, 'summary'],        0, ["zones  : 1 ", "  F.Cu    GND"]),
@@ -470,7 +471,12 @@ def vendor_proj(d):
     body = mod.replace('(footprint "R"', '(footprint "ext:R"').replace('"REF**"', '"R1"').replace(
         '\t(layer "F.Cu")\n', '\t(layer "F.Cu")\n\t(at 10 5)\n', 1)
     body = ''.join('\t' + ln + '\n' for ln in body.rstrip('\n').split('\n'))
-    _tab_board(pj, 'v.kicad_pcb', 20, 10, body)
+    with open(os.path.join(ext, 'D.step'), 'w') as fh:       # kfp vendor D1 --model: the one stock never shipped
+        fh.write('step\n')
+    _tab_board(pj, 'v.kicad_pcb', 20, 10, body + '\t(footprint "Gone:D"\n\t\t(layer "F.Cu")\n\t\t(at 4 5)\n'
+               '\t\t(property "Reference" "D1"\n\t\t\t(at 0 -1.5 0)\n\t\t\t(layer "F.SilkS")\n\t\t)\n'
+               '\t\t(pad "1" smd rect\n\t\t\t(at 0 0)\n\t\t\t(size 0.5 0.5)\n\t\t\t(layers "F.Cu")\n\t\t)\n'
+               '\t\t(model "${KICAD10_3DMODEL_DIR}/Diode.3dshapes/D.step"\n\t\t)\n\t)\n')
     return pj
 
 
@@ -2083,7 +2089,16 @@ def main(pick=(), listing=False, keep=False):
     CASES.append(("kfp show", ['kfp.py', 't:EP', 'show', '--proj', kd], 0,
                   ["pads      : 6 (5 smd, 1 thru_hole)", "body      : 3.000 x 3.000 mm", "courtyard : -2.00,-2.00 .. 2.00,2.00"]))
     CASES.append(("kfp libs", ['kfp.py', KP('t.kicad_pcb'), 'libs'], 0,
-                  ["3 footprints, 1 distinct, from 1 libraries", "unused in t: BAD EP FET"]))
+                  ["3 footprints, 1 distinct, from 1 libraries", "unused in t: BAD EP FET", "3 part(s) have none",
+                   "no model          t:GOOD  (R1-R3)"]))
+    bomcsv = os.path.join(tmp.name, 'bom.csv')            # Designator (not Reference), a range, a space list
+    with open(bomcsv, 'w') as fh:
+        fh.write('"Designator","Qty","MPN","LCSC Part","DNP"\n"R1,R3-R4","3","","",""\n"C1 C2","2","","C1525",""\n'
+                 '"R9","1","","",""\n"R2","1","","",""\n')
+    CASES.append(("knet bom csv", ['knet.py', NET, 'bom', '--csv', bomcsv], 2,
+                  ["7 refs; compared MPN, LCSC, DNP", "in the CSV only, not in the netlist's BOM (1): R9",
+                   "in the netlist only, populated (5): FB1 J1 U1-U3", "C1      LCSC  CSV C1525", "R2      DNP   CSV -",
+                   "3 ref(s) agree"]))
     CASES.append(("kfp edit", ['kfp.py', KP('t.pretty/BAD.kicad_mod'), 'edit', 'origin', 'pads', 'fab', 'pads', 'crtyd', 'klc',
                                '-o', KP('t.pretty/BAD2.kicad_mod')], 0,
                   ["origin: moved to the copper centre (everything shifted -0.500,-0.000)",
@@ -2128,6 +2143,13 @@ def main(pick=(), listing=False, keep=False):
                   ["wrote 1 footprint(s), 1 symbol library, 1 model file(s), the board, 2 schematic(s)"]))
     CASES.append(("kfp vendor result", vend[:-1] + [os.path.join(vp, 'erc0.json')], 0,
                   ["nothing outside the repo: already self-contained"]))
+    vend0 = vend[:-1] + [os.path.join(vp, 'erc0.json'), 'D1', '--model', os.path.join(tmp.name, 'vend_ext', 'D.step')]
+    CASES.append(("kfp vendor named", vend0, 0,
+                  ["footprint Gone:D -> p:D  (D1): D1's board copy", "model ${KICAD10_3DMODEL_DIR}/Diode.3dshapes/D.step -> "
+                   "${KIPRJMOD}/lib/3dmodels/D.step (it was missing)", "models: 1 file(s)", "board: 1 footprint(s) re-pointed"]))
+    CASES.append(("kfp vendor named --apply", vend0 + ['--apply', '--force'], 0, ["wrote 1 footprint(s)"]))
+    CASES.append(("kfp vendor named result", ['kfp.py', os.path.join(vp, 'lib', 'p.pretty', 'D.kicad_mod'), 'show'], 0,
+                  ["${KIPRJMOD}/lib/3dmodels/D.step"]))
     CASES.append(("kpcb zoneshape lint", ['kpcb.py', fz, 'zoneshape'], 0,
                   ["2 zone(s), 1 not hand-drawn style", "1 over a designer's bar", "za        P                  F.Cu     26    24    24    2  26 -> 8 pts  [fatten P]"]))
     CASES.append(("kpcb zoneshape one", ['kpcb.py', fz, 'zoneshape', 'za'], 0,
@@ -2786,7 +2808,8 @@ def main(pick=(), listing=False, keep=False):
     zb = kpcb_board.Board(PCB2); z, f = zb.zones[0], next(iter(zb.fps.values()))
     n_, l_ = z
     fails += check(z['net'] == z.net == z.get('net') == n_ == z[0] and z['layers'] == l_ and z.get('x', 1) == 1
-                   and f['pads'] is f.pads and f.get('nope') is None, "FP / Zone dict-style access")
+                   and f['pads'] is f.pads and f.get('nope') is None and vars(f)['ref'] == dict(f)['ref'] == f.ref
+                   and '_edge' not in vars(f), "FP / Zone dict-style access (vars, dict, items too)")
     # ksheet page order: depth-first reads A(1) C(3) B(2); the navigator lists B first.
     # _xf rotates before it mirrors: at rot 270 + mirror x, lib +x points sheet up
     import ksheet

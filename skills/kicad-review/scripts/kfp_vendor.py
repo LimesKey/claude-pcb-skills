@@ -1,10 +1,12 @@
-"""kfp.py BOARD vendor [--lib NICK] [--models DIR] [--apply]: make a project self-contained.
+"""kfp.py BOARD vendor [REF..] [--model PATH] [--lib NICK] [--models DIR] [--apply]: make a project self-contained.
 
 Every footprint the board takes from a library outside the repo (not stock, not in the
-project) is copied into the project library NICK (default: the one project fp-lib-table
-library): the library file as is when the board copy matches it, else the board's own copy
+project), and that of every REF named (stock too: one whose 3D model KiCad never shipped;
+every instance of that footprint moves), is copied into the project library NICK (default:
+the one project fp-lib-table library): the library file as is when the board copy matches it, else the board's own copy
 in library form (a fix made on the board, so Update Footprint becomes a no-op; when the
-board's instances differ, the first is written and the rest named). Every 3D model resolving
+board's instances differ, the first is written and the rest named). --model PATH replaces
+the named footprints' missing model (else their only one), PATH copied in like the rest. Every 3D model resolving
 outside the repo (on any footprint) is copied into DIR (default: where the repo's models
 already live, else lib/3dmodels) with its .step/.wrl siblings, its path written as
 ${KIPRJMOD}/... Lib IDs move to NICK on the board and in every schematic's Footprint field,
@@ -82,6 +84,13 @@ def c_vendor(a):
     for ref, txt in spans.items():
         m = re.match(r'\t?\(footprint "((?:[^"\\]|\\.)*)"', txt)
         use.setdefault(m.group(1) if m else '?', []).append(ref)
+    named = set(a.args)
+    if named - set(spans):
+        print(f"vendor: not on the board: {' '.join(sorted(named - set(spans), key=natkey))}"); return 1
+    if a.model and not named:
+        print("vendor: --model takes the REF(s) whose footprint it is for"); return 1
+    if a.model and not os.path.isfile(a.model):
+        print(f"vendor: --model {a.model}: no such file"); return 1
     # models: every one outside the repo, on any footprint
     mods = {}
     for ref, txt in spans.items():
@@ -93,6 +102,9 @@ def c_vendor(a):
                    for w in re.findall(r'\(model "((?:[^"\\]|\\.)*)"', t)) if rp and where(rp) == 'repo')
     mdir = a.models or (have.most_common(1)[0][0] if have else os.path.join(proj, 'lib', '3dmodels'))
     mdir = os.path.join(proj, mdir) if not os.path.isabs(mdir) else mdir
+    model = os.path.abspath(a.model) if a.model else ''
+    if model and where(model) != 'repo':          # copied in like any model from outside
+        mods[model] = (model, [r for refs in use.values() if named & set(refs) for r in refs])
     newpath = {w: '${KIPRJMOD}/' + os.path.relpath(os.path.join(mdir, os.path.basename(rp)), proj)
                for w, (rp, _r) in mods.items()}
     copies, fpw, edits, kept = {}, [], 0, 0        # copies: {dst: src}; fpw: (dst, text)
@@ -106,15 +118,32 @@ def c_vendor(a):
             kept += 1
             continue
         copies.update({d: s for d, s in sib.items() if not os.path.isfile(d)})
-    fix_models = lambda t: re.sub(r'\(model "((?:[^"\\]|\\.)*)"',                   # noqa: E731
-                                  lambda m: f'(model "{newpath.get(m.group(1), m.group(1))}"', t)
+    if model:
+        if model in mods and model not in newpath:
+            print("vendor: --model kept out (KEEP above): name a model file that does not clash"); return 1
+        mpath = newpath.get(model) or '${KIPRJMOD}/' + os.path.relpath(model, proj)
+    swap = {}                                      # fpid -> {old model path: --model's}
+
+    def fix_models(t, fpid=None):
+        m2 = {**newpath, **swap.get(fpid, {})}
+        return re.sub(r'\(model "((?:[^"\\]|\\.)*)"', lambda m: f'(model "{m2.get(m.group(1), m.group(1))}"', t)
     moved = {}                                     # old fpid -> new fpid
     print(f"vendor into {nick} ({os.path.relpath(target, proj)}), models into {os.path.relpath(mdir, proj)}")
     for fpid, refs in sorted(use.items()):
         lib, _, name = fpid.partition(':')
         d = dirs.get(lib)
-        if not d or lib == nick or where(d) != 'outside the repo':
+        if lib == nick:
+            if named & set(refs):
+                print(f"  {fpid} ({_rr(named & set(refs))}): already in {nick}")
             continue
+        if not (named & set(refs)) and (not d or where(d) != 'outside the repo'):
+            continue
+        if model and named & set(refs):           # its missing model(s), else its only one
+            ws = re.findall(r'\(model "((?:[^"\\]|\\.)*)"', spans[refs[0]])
+            gone = [w for w in ws if not _model_path(w, env, proj)] or (ws if len(ws) == 1 else [])
+            if not gone:
+                print(f"vendor: --model: {fpid} has {len(ws)} models, all found; nothing to replace"); return 1
+            swap[fpid] = {w: mpath for w in gone}
         fps = load(a.file, sorted(refs, key=natkey), proj)
         keys = [canon(f.t) for f in fps]
         odd = [f.ref for f, k in zip(fps, keys) if k != keys[0]]
@@ -136,7 +165,7 @@ def c_vendor(a):
                     c[2] = q('REF**')
             body = dump(t) + '\n'
             how = f"{fps[0].ref}'s board copy (it differs from the library: kfp diff {fps[0].ref})"
-        body = fix_models(body)
+        body = fix_models(body, fpid)
         if os.path.isfile(dst):
             if not _same(canon(load(dst)[0].t), keys[0]):
                 print(f"  SKIP {fpid}: {nick} already has a different {name}.kicad_mod"); continue
@@ -146,6 +175,8 @@ def c_vendor(a):
         moved[fpid] = f"{nick}:{name}"
         print(f"  footprint {fpid} -> {nick}:{name}  ({_rr(refs)}): {how}"
               + (f"; {' '.join(odd)} differ from it and keep their board copy" if odd else ''))
+        for w, n in swap.get(fpid, {}).items():
+            print(f"    model {w} -> {n}" + ('' if _model_path(w, env, proj) else ' (it was missing)'))
     print(f"  models: {len(copies)} file(s)" + (f" from {', '.join(sorted({os.path.dirname(s) for s in copies.values()}))}"
                                                  if copies else '') + f", {len(newpath)} path(s) re-pointed")
     for w, (rp, refs) in sorted(mods.items())[:a.max]:
@@ -163,7 +194,7 @@ def c_vendor(a):
             old, new = m.group(1), moved[m.group(1)]
             n = n.replace(f'(footprint "{old}"', f'(footprint "{new}"', 1).replace(
                 f'(property "Footprint" "{old}"', f'(property "Footprint" "{new}"')
-        n = fix_models(n)
+        n = fix_models(n, m and m.group(1))
         if n != s:
             btxt, k = btxt.replace(s, n, 1), btxt.count(s)
             if k != 1:
@@ -196,7 +227,7 @@ def c_vendor(a):
         table = (tp, cur[:cur.rstrip().rfind(')')] + ent + ')\n')
         print(f"  fp-lib-table: add {nick}")
     print(f"  board: {edits} footprint(s) re-pointed")
-    _stock_rank(a, proj, use, where, dirs)
+    _stock_rank(a, proj, {k: v for k, v in use.items() if k not in moved}, where, dirs)
     if not (fpw or copies or edits or sch or table or libs or stable or block):
         print(f"nothing more to vendor ({kept} model path(s) kept outside: KEEP above)" if kept else
               "nothing outside the repo: already self-contained"); return 0

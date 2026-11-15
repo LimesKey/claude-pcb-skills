@@ -9,8 +9,10 @@
                                  DRC's lib_footprint_mismatch means and what Update Footprint changes
   kfp.py BOARD libs              where every board footprint and 3D model comes from, and what a
                                  clone of the repo would lack
-  kfp.py BOARD vendor            copy what lives outside the repo (footprints, 3D models, symbols,
-                                 and symbols edited in the schematic) into the project; dry run
+  kfp.py BOARD vendor [REF..]    copy what lives outside the repo (footprints, 3D models, symbols,
+                                 and symbols edited in the schematic) into the project, and the
+                                 named REFs' footprints (stock too; --model PATH for a missing
+                                 3D model); dry run
 
 FP is a .kicad_mod, a .pretty (show/lint: every footprint in it), Lib:Name through the project's
 fp-lib-table (then the global one), or BOARD.kicad_pcb REF: the board's own copy, turned back
@@ -607,6 +609,7 @@ def main(argv=None):
     ap.add_argument('--all', action='store_true', help='diff: also print footprints that differ only where DRC looks away')
     ap.add_argument('--lib', default='', help='vendor: the project fp-lib-table library to copy into')
     ap.add_argument('--models', default='', help='vendor: where 3D models go (default: beside the repo\'s models)')
+    ap.add_argument('--model', default='', help='vendor REF..: the 3D model for those footprints (replaces a missing one)')
     ap.add_argument('--apply', action='store_true', help='vendor: write the copies and edits in place (default: dry run)')
     ap.add_argument('--force', action='store_true', help='vendor --apply: write even while KiCad holds the project')
     ap.add_argument('--symlib', default='', help='vendor: the project sym-lib-table library symbols go into')

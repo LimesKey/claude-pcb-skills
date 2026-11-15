@@ -17,7 +17,10 @@ Two Claude Code skills (`skills/kicad-review`, `skills/part-search`) and a
   to work it). Fix whatever else you find on the way if it is in a script already
   in context or is a small change the selftest covers; log it only if it needs a
   new script, new fixtures or a cross-script refactor. Every landed fix, queued or
-  found, gets an entry at the top of [CHANGELOG.md](CHANGELOG.md).
+  found, gets an entry at the top of [CHANGELOG.md](CHANGELOG.md). Open empty, or
+  asked what to improve: `tools/usage.py PROJECT_DIR` mines a project's Claude
+  transcripts for crashes, usage errors, help lookups and the inline scripts that mark
+  a missing command; re-run a reported failure on the current tree before fixing it.
 - New behaviour gets one selftest case: grep `selftest.py` for the command and
   extend the fixture builder it uses (recipes.md, "self-test"). Iterate with
   `selftest.py -k LABEL` (`--keep` leaves its fixtures and outputs in the printed temp dir,

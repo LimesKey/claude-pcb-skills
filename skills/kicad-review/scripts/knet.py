@@ -22,6 +22,8 @@ Query:
   knet.py FILE find 'BQ29|0603'         search refs/values/footprints/props/nets
   knet.py FILE bom                      grouped BOM, DNP separated (board-wide by default)
   knet.py FILE bom --sheet /Root/Rails/ ...same, scoped to one sheet and its children
+  knet.py FILE bom --csv BOM.csv        a fab BOM CSV vs the netlist, per ref: missing either
+                                         side, MPN / LCSC / DNP that differ (exit 2 if any)
   knet.py FILE sheets                   components grouped by hierarchical sheet
   knet.py FILE rails                    every power rail: source, loads, decoupling
   knet.py FILE i2c                      each SDA/SCL bus: controller, targets with their
@@ -78,7 +80,7 @@ after a big rewire.
 Exit codes: 0 clean, 1 not found, 2 `check` found an ERROR (or `draw` produced a
 diagram that fails its own layout/netlist verification), 3 bad file/spec.
 """
-import sys, os, json, argparse, signal
+import sys, os, re, csv, json, argparse, signal
 from collections import Counter, defaultdict, deque
 
 from kcommon import Netlist, natkey, parse_args, refrange, smart_re, trunc
@@ -129,7 +131,9 @@ def c_summary(nl, a):
         byprefix[nl.comps[ref]['prefix']].append(ref)
     print("\nby prefix:")
     for p in sorted(byprefix):
-        print(f"  {p:<4} {len(byprefix[p]):>3}  {refrange(byprefix[p])}")
+        nums = [int(m.group(1)) for r in byprefix[p] for m in [re.match(r'[A-Za-z]+(\d+)$', r)] if m]
+        nxt = f"next {p}{max(nums) + 1}" if nums else ''
+        print(f"  {p:<4} {len(byprefix[p]):>3}  {nxt:<10} {refrange(byprefix[p])}")
     print("\npower rails (name-derived):")
     for n in sorted(nl.railv, key=lambda x: -nl.railv[x]):
         print(f"  {nl.railv[n]:>5.2f} V  {n:<24} {len(nl.nets.get(n,[]))} nodes")
@@ -245,7 +249,67 @@ def c_find(nl, a):
         print(f"no match for {a.args[0]!r}")
         return 1
 
+_BOMCOLS = {'ref': ('reference', 'references', 'designator', 'designators', 'ref', 'refs', 'refdes'),
+            'MPN': ('mpn', 'manufacturer part', 'manufacturer part number', 'mfr part', 'mfr. part #', 'mfr part #'),
+            'LCSC': ('lcsc part', 'lcsc', 'lcsc part #', 'lcsc part number', 'jlcpcb part #', 'jlcpcb part'),
+            'DNP': ('dnp', 'do not populate')}
+
+
+def _refs(cell):
+    """'R1,R2 R5-R7' -> R1 R2 R5 R6 R7"""
+    out = []
+    for t in re.split(r'[,;\s]+', cell.strip()):
+        m = re.fullmatch(r'([A-Za-z_]+)(\d+)-\1?(\d+)', t)
+        out += [f"{m.group(1)}{n}" for n in range(int(m.group(2)), int(m.group(3)) + 1)] if m else [t] if t else []
+    return out
+
+
+def c_bomcsv(nl, a):
+    """a fab BOM CSV (KiCad's, JLC's, PCBWay's: whatever names its columns) vs the netlist"""
+    with open(a.csv, encoding='utf-8-sig', newline='') as fh:
+        rows = list(csv.reader(fh))
+    hi = next((i for i, r in enumerate(rows[:20]) if any(c.strip().lower() in _BOMCOLS['ref'] for c in r)), None)
+    if hi is None:
+        print(f"{a.csv}: no Reference / Designator column in the first 20 rows"); return 3
+    hdr = [c.strip().lower() for c in rows[hi]]
+    col = {k: next((hdr.index(n) for n in names if n in hdr), None) for k, names in _BOMCOLS.items()}
+    keys = [k for k in ('MPN', 'LCSC', 'DNP') if col[k] is not None]
+    yes = lambda v: v.strip().lower() in ('dnp', 'yes', 'y', 'true', '1', 'x')     # noqa: E731
+    cs = {}
+    for r in rows[hi + 1:]:
+        if len(r) <= col['ref']:
+            continue
+        for ref in _refs(r[col['ref']]):
+            cs[ref] = {k: (('DNP' if yes(r[col[k]]) else '') if k == 'DNP' else r[col[k]].strip())
+                       for k in keys if col[k] < len(r)}
+    nv = {ref: {'MPN': c['props'].get('MPN') if isinstance(c['props'].get('MPN'), str) else '',
+                'LCSC': c['lcsc'], 'DNP': 'DNP' if c['dnp'] else ''}
+          for ref, c in nl.comps.items() if c['in_bom']}
+    only_c = sorted(set(cs) - set(nv), key=natkey)
+    only_n = sorted(set(nv) - set(cs), key=natkey)
+    diff = [(ref, k, cs[ref].get(k, ''), nv[ref][k]) for ref in sorted(set(cs) & set(nv), key=natkey)
+            for k in keys if cs[ref].get(k, '') != nv[ref][k]]
+    print(f"{a.csv}: {len(cs)} refs; compared {', '.join(keys) or 'refs only'}"
+          f" ({', '.join(rows[hi][col[k]] for k in keys)})")
+    if only_c:
+        print(f"  in the CSV only, not in the netlist's BOM ({len(only_c)}): {refrange(only_c)}")
+    for tag, sel in (('populated', [r for r in only_n if not nv[r]['DNP']]), ('DNP', [r for r in only_n if nv[r]['DNP']])):
+        if sel:
+            print(f"  in the netlist only, {tag} ({len(sel)}): {refrange(sel)}")
+    if diff:
+        print(f"  differ ({len(diff)}):")
+        for ref, k, cv, nv_ in diff[:a.max * 4]:
+            print(f"    {ref:<7} {k:<5} CSV {cv or '-':<24} netlist {nv_ or '-'}")
+        if len(diff) > a.max * 4:
+            print(f"    ... +{len(diff) - a.max * 4} more")
+    bad = only_c or [r for r in only_n if not nv[r]['DNP']] or diff
+    print(f"{len(set(cs) & set(nv)) - len({d[0] for d in diff})} ref(s) agree" + ('' if bad else '; the CSV matches the netlist'))
+    return 2 if bad else 0
+
+
 def c_bom(nl, a):
+    if a.csv:
+        return c_bomcsv(nl, a)
     # bom is board-wide by default; --sheet scopes it to one hierarchical sheet
     # (and everything nested under it), reusing `sheets`' own per-sheet grouping
     # rather than re-deriving sheet membership here.
@@ -594,6 +658,7 @@ def main():
     ap.add_argument('--sheet', default='',
                     help="for `bom`: only components on this hierarchical sheet path and "
                          "below, e.g. '/Root/Rails/' (bom is board-wide by default)")
+    ap.add_argument('--csv', default='', help='for `bom`: a fab BOM CSV to check against the netlist')
     ap.add_argument('--peer-max', type=int, default=12, help='max peers listed per net in `around`')
     ap.add_argument('--stack', default='', help='for `revpol`: series cells, e.g. BT1,BT2 (default: every BT*)')
     ap.add_argument('--pair', default='', help='for `revpol`: a +/- net pair instead, e.g. +PACK,-BATT')

@@ -399,6 +399,14 @@ class FP:
     def get(self, k, d=None):
         return getattr(self, k, d)
 
+    def keys(self):                             # dict(fp), fp.items(), vars(fp): the other probes
+        return [k for k in self.__slots__ if k[0] != '_' and hasattr(self, k)]
+
+    def items(self):
+        return [(k, getattr(self, k)) for k in self.keys()]
+
+    __dict__ = property(lambda f: dict(f.items()))
+
     def __repr__(self):                         # print(fp) in an ad-hoc script says what it is
         return (f'FP({self.ref} {self.value!r} {self.layer} {self.x:.3f},{self.y:.3f} '
                 f'r{self.rot:g}, {len(self.pads)} pads)')

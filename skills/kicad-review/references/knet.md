@@ -10,7 +10,7 @@ basic queries (`summary`, `around`, `comp`, `net`, `pin`, `find`, `walk`, `path`
 
 | command | use |
 | --- | --- |
-| `summary` | comps, sheets, rails, DNP list, largest nets. Run first on an unfamiliar board. |
+| `summary` | comps, sheets, refs by prefix with the next free number (`next R137`), rails, DNP list, largest nets. Run first on an unfamiliar board. |
 | `around REF...` | **highest value per call.** Pins, types, nets, position, every part one hop away. Use instead of `comp` + several `pin` calls. |
 | `check` | rule-based findings (`--rules` lists the rules), grouped ERROR/WARN/INFO. Exit 2 if any ERROR. Three or more findings sharing a message fold into one line, `tail [N]: refs` - `[49]` means 49 separate findings, not one. |
 | `check --since old.net` | only findings NEW vs an older export, plus a fixed/unchanged tally. |
@@ -30,7 +30,7 @@ pin, so a long name never runs into the IC's pin number. Dual diodes (BAT54S/A/C
 | `find PATTERN` | searches refs, values, footprints, properties, pin functions, net names. |
 | `walk REF[.PIN] -d N` | expand outward through 2-pin passives. |
 | `path A B` | shortest electrical path between two parts. |
-| `bom [--sheet PATH]` | grouped, DNP separated, flags parts with no LCSC number. `--sheet /Root/Rails/` scopes to one hierarchical sheet and everything nested under it. |
+| `bom [--sheet PATH]` | grouped, DNP separated, flags parts with no LCSC number. `--sheet /Root/Rails/` scopes to one hierarchical sheet and everything nested under it. `--csv BOM.csv`: a fab BOM CSV (KiCad's, JLC's, any with a Reference/Designator column; refs comma or space separated, `R1-R4` ranges) vs the netlist per ref: in either only (a DNP part missing from the CSV listed apart), MPN / LCSC / DNP where the CSV has that column; exit 2 on any difference. |
 | `unconnected` | floating pins, `[NC flag]` vs `[NO NC flag]` with the sidecar, plus single-node nets. |
 | `sheets` | components per hierarchical sheet. |
 | `revpol [--stack BT1,BT2 \| --pair P,N --volts V]` | reverse-polarity what-if. See below. |

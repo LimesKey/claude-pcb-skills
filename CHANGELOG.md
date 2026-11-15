@@ -3,11 +3,31 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kfp_vendor - `vendor` skipped stock footprints, so a stock part whose 3D model KiCad never
+      shipped had to be copied by hand (lib file, board lib_id, sch Footprint field, board-side overrides).
+      Done: `vendor REF.. [--model PATH]` vendors the named parts' footprints whatever their library (stock, or
+      one in no table: the board copy is written), every instance of that footprint moving with it; `--model`
+      replaces their missing model (else their only one), PATH copied in like any outside model. Moved stock
+      footprints drop out of the "Update Footprint would change" list. Selftest: a library-less footprint with a
+      missing model, dry run, apply, result. 2026-11-15.
+- [x] kicad-review/router - the inline scripts usage.py counted, checked against the commands. Done: `knet bom
+      --csv BOM.csv` cross-checks a fab BOM CSV against the netlist per ref (either side only, MPN / LCSC /
+      DNP, column names KiCad's, JLC's and others'; `R1-R4` ranges; exit 2 on a difference; the reference board's
+      427 refs agree); `knet summary` prints the next free number per prefix; `kfp libs` lists parts with no 3D
+      model (padless art left out); FP answers `vars()`, `dict()` and `.items()` too (5 of the 29 raised). Router
+      rows for all three, plus the existing `where --pads`. 2026-11-15.
 - [x] kicad-review - the ad-hoc query import and its data model (FP, pad, track, via, fill, zone and
       Netlist fields) moved from recipes.md into SKILL.md, so they load with the skill: usage.py found 235
       inline scripts in 65 sessions, many opening with a `dir()` probe, while recipes.md was read 5 times.
       `print(fp)` shows ref, value, layer, position and pad count instead of `<FP object>`; selftest checks
       it. 2026-11-14.
+- [x] tools - `tools/usage.py PROJECT_DIR [--since D] [--dev] [--max N]`: the transcript mining behind the two
+      entries below, kept. Per tool and command call counts, Skill loads and reference reads; CLI crashes by
+      frame + exception and argparse errors, each marked `[script changed since]` when git touched the script
+      after the last one; -h lookups; inline scripts importing the skill modules (how many raised and why, the
+      model attributes and internals they reach for, the newest few). Skill-development sessions (an edit under
+      skills/<name>/) are left out; duplicated tool_use ids count once. `--selftest` (synthetic transcript) and
+      pyflakes run in verify.sh; CLAUDE.md's backlog rule points at it. 2026-11-14.
 - [x] kicad-review/kpcb - what a month of inline library scripts kept re-deriving (~200 in the reference
       project's use sessions, 1 in 10 raising). Done: `where REF --pads` lists every copper pad (num, xy, layers,
       size, rot, pin, net; `--origin` applies); `net NET` adds one `zonedef` line per zone (uuid, priority, layers,

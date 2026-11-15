@@ -89,19 +89,24 @@ cannot refresh, lint or render those), `stock`, `NOT IN LIBRARY`, `NO LIBRARY`. 
 project libraries' footprints no part uses, and every 3D model by where it resolves
 (`${VARS}` from the environment, kicad_common.json, `${KIPRJMOD}` and KiCad's stock
 `KICADn_3DMODEL_DIR`, which 10.99 defines for n = 10 and 11 alike), listing missing
-files and models outside the repo (an untracked repo model is listed as `repo, UNTRACKED`).
+files, models outside the repo (an untracked repo model is listed as `repo, UNTRACKED`) and
+parts with no model at all (a padless logo is no part).
 
 ## vendor
 
-`kfp.py BOARD vendor [--lib NICK] [--symlib NICK] [--models DIR] [--erc REPORT.json] [--apply [--force]]`:
-make the project self-contained. Every footprint from a library outside the repo goes into the project library
+`kfp.py BOARD vendor [REF..] [--model PATH] [--lib NICK] [--symlib NICK] [--models DIR] [--erc REPORT.json] [--apply [--force]]`:
+make the project self-contained. Every footprint from a library outside the repo, and the footprint of
+every REF named (stock or a library in no table too; every instance of that footprint moves with it),
+goes into the project library
 NICK (default: the one in the project fp-lib-table): the library file verbatim when the board
 copy matches it, else the board's copy in library form (Reference `REF**`, version line added),
 so Update Footprint becomes a no-op; instances that differ from the one written are named
 (they keep their board copy). Every 3D model resolving outside the repo is copied into DIR
 (default: where the repo's models already are, else `lib/3dmodels`) with its .step/.wrl
 siblings and re-pointed as `${KIPRJMOD}/...`; a different file already there is never
-overwritten (that path stays). Lib ids move on the board and in every placed symbol's Footprint
+overwritten (that path stays). `--model PATH` (with REFs) replaces the named footprints' 3D model
+that resolves to no file (else their only one), PATH copied in the same way: the stock footprint
+whose .step KiCad never shipped (`libs` lists it missing). Lib ids move on the board and in every placed symbol's Footprint
 field (the sheets of the project's hierarchy: its root and top-level sheets and the Sheetfiles
 they pull in, never a stray copy such as a backup in `./orig/`), never in the `lib_symbols` cache (that would read as lib_symbol_mismatch); NICK joins
 the fp-lib-table if missing.

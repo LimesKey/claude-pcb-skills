@@ -273,11 +273,13 @@ def c_libs(a):
             return 'repo' if not tracked or rp in tracked else 'repo, UNTRACKED'
         return 'outside the repo'
 
-    use, mods = {}, {}
+    use, mods, nom = {}, {}, {}
     for ref, txt in spans.items():
         m = re.match(r'\t?\(footprint "((?:[^"\\]|\\.)*)"', txt)
         fpid = m.group(1) if m else '?'
         use.setdefault(fpid, []).append(ref)
+        if '(model ' not in txt and '(pad ' in txt:          # padless art (a logo) is no part
+            nom.setdefault(fpid, []).append(ref)
         for w in re.findall(r'\(model "((?:[^"\\]|\\.)*)"', txt):
             mods.setdefault(w, []).append(ref)
     rows = {}
@@ -322,8 +324,10 @@ def c_libs(a):
             out_.append((k, w, refs))
     rr = lambda refs: refrange(sorted(refs, key=natkey)) if len(refs) > 1 else refs[0]   # noqa: E731
     print(f"3D models: {sum(mk.values())} part(s) resolve ({', '.join(f'{n} {k}' for k, n in mk.most_common())})"
-          + f"; {sum(len(r) for _w, r in bad)} part(s) name a file that does not exist")
-    for tag, w, refs in (sorted(('missing', w, r) for w, r in bad) + sorted(out_))[:2 * a.max]:
+          + f"; {sum(len(r) for _w, r in bad)} part(s) name a file that does not exist"
+          + f"; {sum(len(r) for r in nom.values())} part(s) have none")
+    for tag, w, refs in (sorted(('missing', w, r) for w, r in bad) + sorted(out_)
+                         + sorted(('no model', f, r) for f, r in nom.items()))[:3 * a.max]:
         print(f"  {tag:<17} {w}  ({rr(refs)})")
     print("A board carries its own footprint copies, so fab output never needs a library. 'outside the repo' "
           "is what a clone cannot refresh (Update Footprint), lint, or render in 3D: copy those footprints/models "
