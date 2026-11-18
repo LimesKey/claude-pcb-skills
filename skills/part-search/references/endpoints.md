@@ -92,6 +92,14 @@ Keyword matching ANDs tokens and does not reliably index category names: `TVS` 3
 Rows carry `describe`, a one-line spec string (`30V 40A 7.5mΩ@10V DFN-8(3x3) MOSFETs`),
 used as `desc`.
 
+## LCSC BOM tool (lcsc.com/bom), seen 2026-11-17
+
+Browser only. It takes a CSV (`bom --lcsc-csv` writes one), shows 3 matched lines to an
+anonymous user and the rest only after login, and its match/detail XHRs return
+encrypted bodies, so there is no JSON endpoint to call. Its "exact match" per C-code is
+the same record `lcsc_detail` returns; `bom` already reports stock and price per code.
+Use the tool only to save the cart; its export is .xls (needs xlrd, not stdlib).
+
 ## JLCPCB Basic vs Extended
 
 LCSC has no concept of "Basic" - it is a JLC assembly-library field. So:

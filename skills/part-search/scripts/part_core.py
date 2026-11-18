@@ -161,6 +161,14 @@ def buy_qty(qty, moq, mult):
         q = ((q + mult - 1) // mult) * mult
     return q
 
+def best_buy(need, ladder, moq, mult):
+    """(qty, unit) cheapest in total for >= need: MOQ/multiple applied, and every price
+    break above need tried, since 100 at a break can cost less than 30 below it."""
+    ladder = ladder or []
+    qs = {buy_qty(need, moq, mult)} | {buy_qty(b, moq, mult) for b, _ in ladder if b > need}
+    q = min(qs, key=lambda q: ((price_at(ladder, q) or 0) * q, q))
+    return q, price_at(ladder, q)
+
 SYM = {'USD': 'US$', 'CAD': 'C$', 'EUR': 'EUR ', 'GBP': 'GBP ', 'JPY': 'JPY '}
 
 def money(x, code='USD'):

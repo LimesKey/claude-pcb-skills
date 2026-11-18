@@ -34,6 +34,7 @@ python3 $P pick MLCC --cap 4.7u..100u --volt '>=25' --pkg 0805 --diel X7R,X5R
 | "get the datasheet so I can grep it" | `ds C... --save` |
 | "X vs Y" | `compare` (LCSC, JLC and DigiKey rows in one table: `compare C.. MPN --provider digikey`) |
 | "what does this whole board cost" | `bom` |
+| "cheapest way to buy parts for 5 boards, LoRa on only 2", "is DigiKey/Mouser cheaper for some lines", "cut the BOM cost" | `bom b.net --qty 5 --sheet-qty LoRa=2 --vs digikey,mouser --alt 20` - see below |
 | "source this board" / "what's blocking assembly" | `check` - `bom` + `jlc` + missing-code triage in one call |
 | "do my footprints/values match the parts" / "any wrong packages or values" | `fpcheck` - KiCad footprint + value vs the LCSC part, per part |
 | bare MPN, no constraints, just find it | `search` |
@@ -73,7 +74,11 @@ constraints, use `pick`, not `search`.**
 | `ds C42409135 --save [--dir D] [--name N]` | ...then download the verified PDF to `docs/datasheets/<PART>.pdf` (the base part number, uppercase: a ti.com link names it, `BQ25798RQMR` -> `BQ25798`; else the MPN cut at `,` `(` `+` `#`; vendor variant codes like `NEO-F10N-00B` need `--name NEO-F10N`; companion docs `--name <PART>_<DocType>`), or `docs/datasheets/<sheet>/` when that folder is split per sheet (sheet from the netlist; refuses and asks for `--dir` when it can't tell) (checks the `%PDF` header, keeps an existing file unless `--fresh`) and `kdoc.py index` it (with `--ocr` when any page is image-only, like Sunlord's catalogs), so `kdoc.py grep -d <MPN>` works next |
 | `compare C1525 C60474` | side-by-side, differing parameters only |
 | `search 'TPS61033'` | keyword search, LCSC rows then JLC rows (JLC catalog price, spec string as desc). Add `--instock`. |
-| `bom board.net --qty 5` | prices a whole KiCad netlist by its LCSC Part property |
+| `bom board.net --qty 5` | prices a whole KiCad netlist by its LCSC Part property; each line buys up to a price break when that costs less (`(need 45, a break)`) |
+| `bom ... --sheet-qty LoRa=2` | parts on that sheet (or under it, whole path segments) bought for 2 boards, not `--qty`; repeatable. Prints the per-board cost of the base and of each variant |
+| `bom ... --vs digikey,mouser` | prices every line, and every no-code part with an `MPN`, on those too (exact MPN, stock >= buy, breaks tried) and picks the cheapest supplier set with shipping: each line to its cheapest source in the set. Shipping from config.json `"shipping": {"lcsc": [COST, null], "digikey": [COST, FREE_OVER]}` in the display currency (include brokerage/duty); unset = 0 and it says so. `--site CA --currency CAD` for the Canadian store |
+| `bom ... --alt N` | `alt` on the N costliest lines at their real quantity: the cheapest equal-or-better drop-in and the saving. Ratings only: package, pinout and RF/analog behaviour are the datasheet's, so read it before a swap. Passives are where it finds most |
+| `bom ... --lcsc-csv OUT.csv` | the buy list as an upload for LCSC's BOM tool (lcsc.com/bom); its match only adds what `bom` already looked up per code (see [endpoints](references/endpoints.md)) |
 | `check board.net --qty 5` | one-shot sourcing triage: `bom` pricing + `jlc` Basic/Extended, one table, one pass over the netlist |
 | `fpcheck board.net` | each symbol's KiCad footprint AND value vs the assigned LCSC part. Footprint: flags size/family mismatches and one LCSC code reused across different bodies (chip sizes and MPN-named footprints auto-clear; divergent nomenclature -> a small REVIEW bucket). Value: R/C/L symbol value vs LCSC's resistance/capacitance/inductance param (catches a right-footprint, wrong-value part, e.g. a 36R part on a 37.4R symbol). MPN: the symbol's `MPN` field vs the code's part (a swapped `LCSC Part` or a stale MPN) is a MISMATCH. The header counts rows: a code on two footprints or values is two. Body sizes stated in both names (`DFN-8(3x3)` vs `_2x2mm`) must agree. Leadless parts (DFN/QFN/SON/LGA/PicoStar) also get a **land check**: the board footprint's copper extent and largest pad vs the EasyEDA footprint LCSC links to the code (the one JLC assembles on); a >25% pad / >20% extent difference goes to REVIEW even if `fpcheck.json` confirmed the names (only a `--datasheet` land confirmation clears it); a custom pad counts its primitives, not just its anchor. Board = the one `.kicad_pcb` beside the netlist or `--pcb`; `--no-land` skips it (EasyEDA 403s after ~150 quick calls; results cache 30 days). Also lists any assigned part LCSC marks EOL/NRND. `--show-ok`, `--json`; no `.net` runs the offline self-test. |
 | `selftest` | which providers and the FX rate source work right now |
@@ -150,8 +155,9 @@ not before a normal query.
   USD (`currency` in `~/.config/partsearch/config.json` or `$PARTSEARCH_CURRENCY`
   changes it); other currencies convert at a daily cached rate with the native figure
   in parentheses. `--currency X` switches one run.
-- **`bom` totals exclude shipping, tax, PCB fabrication and assembly.** Say so when
-  quoting a per-board cost. Extended line fees are `jlc`'s job, not `bom`'s.
+- **`bom` totals exclude shipping, tax, PCB fabrication and assembly** (`--vs` adds the
+  configured shipping to its split only). Say so when quoting a per-board cost. Extended
+  line fees are `jlc`'s job, not `bom`'s. JLC-assembly-only codes are never in a total.
 - **Never regex a netlist for `C\d+`** to find LCSC codes - that matches capacitor
   refdes like `C108`. `jlc`/`bom` parse the `LCSC Part` property via kicad-review's
   `knet.py`.

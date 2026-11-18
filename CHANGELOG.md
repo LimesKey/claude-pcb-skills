@@ -3,6 +3,18 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] part-search/bom - pricing N boards with a variant on some, across suppliers, took two hand-written
+      scripts (a per-sheet buy list, an LCSC vs DigiKey.ca comparison) and a browser session. Done: `bom
+      --sheet-qty SHEET=N` (a sheet and its children bought for N boards; per-board cost of the base and each
+      variant), every line buys up to a price break when that costs less (also `check`), `--vs digikey,mouser`
+      (exact-MPN offers with stock, no-code MPN parts included, cheapest supplier set with config.json
+      `shipping`), `--alt N` (`alt` on the N costliest lines, saving per line), `--lcsc-csv OUT` (LCSC BOM tool
+      upload). Offline selftest: breaks, sheet matching, split with and without free-shipping thresholds.
+      2026-11-17.
+- [x] part-search/alt - a part whose LCSC record lists no parameters (C113132, a 470 nH 2% wirewound) held
+      only its package, so a 400 ohm ferrite bead came back as its drop-in. Done: `alt` takes JLC's parameters
+      when LCSC lists none, and refuses when nothing beyond the package is held.
+      2026-11-17.
 - [x] kicad-review/kfp_vendor - `vendor` skipped stock footprints, so a stock part whose 3D model KiCad never
       shipped had to be copied by hand (lib file, board lib_id, sch Footprint field, board-side overrides).
       Done: `vendor REF.. [--model PATH]` vendors the named parts' footprints whatever their library (stock, or

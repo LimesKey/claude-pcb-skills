@@ -2,7 +2,7 @@
 import sys, re, json
 import concurrent.futures as cf
 from part_core import (buy_qty, cached, dk_categories, dk_detail, _dk_norm, dk_query, dmoney1, _EOL_RE,
-                       http, jlc_annotate, jlc_facets, jlc_lib_map, lcsc_detail, lcsc_search,
+                       http, jlc_annotate, jlc_detail, jlc_facets, jlc_lib_map, lcsc_detail, lcsc_search,
                        LCSC_SEARCH, price_at, resolve, third_note, trunc)
 from part_value import (alias_keys, attr_hit, attr_of, canon, enum, _exact, FLAG_ATTRS, fmt_si,
                         make_pred, _norm, norm_val, series_in, _short, STD_V, _UNIT_OF)
@@ -741,6 +741,8 @@ def c_pick(a):
     _tag_clones(hits, a)
     if not a.nojlc:
         jlc_annotate(hits, a.jobs, a.fresh)
+    if getattr(a, '_collect', None) is not None:      # `bom --alt` takes the rows, prints nothing
+        a._collect += hits; return 0 if hits else 1
     if a.json:
         print(json.dumps(hits, indent=1)); return 0 if hits else 1
     cols = [n for n, _, _ in cons if n != 'pkg'][:4]
@@ -921,6 +923,9 @@ def c_alt(a):
         print(f"alt: {a.args[0]} not found"); return 1
     b = base[0]
     p = b.get('params') or []
+    if not p and b.get('source') == 'LCSC':   # LCSC lists none for some (C113132), JLC does
+        p = b['params'] = [(n, v) for n, v in ((jlc_detail(b['sku'], a.fresh) or {}).get('params') or [])
+                           if v not in (None, '', '-')]
     a.pkg = a.pkg or b.get('package')
     used = set()
     for k in ('cap', 'res', 'ind', 'volt', 'tol', 'diel'):   # passives: exact names only
@@ -944,6 +949,10 @@ def c_alt(a):
                 key=lambda h: next((i for i, t in enumerate(_B_PREF)
                                     if t in re.sub(r'[^\d/]', '', h[0])), 9))
     holds = [h for h in holds if h not in bs[1:]]
+    if not holds and not used and not a.w:
+        print(f"alt: {b.get('sku')} lists no rated parameter on LCSC or JLC, so only the package "
+              f"would be held. Give the limits: part.py pick --like {b.get('sku')} --w 'NAME=SPEC'")
+        return 1
     if re.search(r'TVS|ESD', b.get('category') or '') and not _exact(p, 'cap')[0]:
         print(f"note: {b.get('sku')} lists no capacitance, so none is held - on an RF or "
               f"high-speed line check each candidate's C in its datasheet")

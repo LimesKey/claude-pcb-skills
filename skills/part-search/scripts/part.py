@@ -35,6 +35,9 @@ Costing a board
   part.py bom meshtastic.net --qty 10  LCSC retail price for a whole netlist
   part.py jlc meshtastic.net           JLC Basic vs Extended + $3/line assembly fees
   part.py check meshtastic.net --qty 10  bom + jlc + missing-code triage, one table
+  part.py bom b.net --qty 5 --sheet-qty LoRa=2 --sheet-qty GNSS=2   a variant on 2 of 5
+  part.py bom b.net --qty 5 --vs digikey,mouser --alt 15   cheapest supplier split
+                                       (shipping-aware) + drop-ins for the 15 dearest lines
   part.py fpcheck meshtastic.net       KiCad footprint + value vs the LCSC part, per part
 
 Constraint grammar (every --flag and every --w NAME=SPEC)
@@ -257,8 +260,21 @@ def c_selftest(a):
                            'ProductAttributes': [{'AttributeName': 'Package / Case', 'AttributeValue': 'SOT-583'}]})
         assert (mp['stock'], mp['ladder'], mp['package'], _num('1.234,50 \u20ac')) == \
             (12543, [(1, 1.23), (1000, 1000.5)], 'SOT-583', 1234.5), 'mouser normaliser'
+        from part_core import best_buy
+        from part_bom import _rule, _sheet_rules, _split
+        lad = [(1, 0.05), (10, 0.02), (100, 0.002)]
+        assert (best_buy(30, lad, 1, 1), best_buy(5, lad, 1, 1), best_buy(150, lad, 20, 20)) == \
+            ((100, 0.002), (10, 0.02), (160, 0.002)), 'bom price-break look-ahead'
+        rs = _sheet_rules(argparse.Namespace(sheet_qty=['LoRa=2', '/Root/GNSS/=3']))
+        assert [(_rule(s, rs) or (0, 5))[1] for s in ('/Root/LoRa/', '/Root/LoRa/PA/', '/Root/GNSS/',
+                                                      '/Root/', '/LoRaWAN/')] == [2, 2, 3, 5, 5], 'bom --sheet-qty'
+        ln = [{'lcsc': 1.0, 'digikey': 0.5}, {'lcsc': 2.0, 'digikey': 1.0}, {'digikey': 3.0}]
+        sp = lambda ship: (round(_split(ln, ship)[0], 6), _split(ln, ship)[2])   # noqa: E731
+        assert (sp({}), sp({'digikey': (10, None)}), sp({'digikey': (10, 4)}), _split(ln[:2] + [{}], {})) == \
+            ((4.5, ['digikey'] * 3), (14.5, ['digikey'] * 3), (4.5, ['digikey'] * 3), None), 'bom --vs split'
+        assert _split(ln[:2], {'digikey': (10, None), 'lcsc': (1, None)}) == (4.0, {'lcsc': 3.0}, ['lcsc'] * 2)
         import part_core
-        real = part_core.cached                      # the marketplace parser on a recorded answer
+        real = part_core.cached                     # the marketplace parser on a recorded answer
         part_core.cached = lambda *_a, **_k: {'productList': [{   # noqa: E731
             'vendorCode': 'G1', 'productSource': 'waldom', 'stockNumber': 3000, 'minBuyNumber': 1, 'split': 1,
             'deliveryTimeWayDays': [9, 11], 'productModel': 'X 25+', 'batchNumber': '25+',
@@ -293,7 +309,7 @@ def c_selftest(a):
         nd = len(sk.split('description: ', 1)[1].split('\n---', 1)[0].strip())
         assert nd <= 1024, f'SKILL.md description {nd} chars > 1024'
         off = (f"OK    pick/alt parsing {_pick_selftest()}, fpcheck matcher {_fpcheck_selftest()}, "
-               f"ds names 6/6, wmsc v2 fallback, mouser normaliser, LCSC marketplace, kcap bridge, lighting-LED note, broken fpcheck.json, "
+               f"ds names 6/6, wmsc v2 fallback, bom breaks/sheet-qty/split, mouser normaliser, LCSC marketplace, kcap bridge, lighting-LED note, broken fpcheck.json, "
                f"description {nd} chars")
     except AssertionError as e:
         off = f"FAIL  {e}"
@@ -567,6 +583,16 @@ def main():
     ap.add_argument('--dir', default='', help='ds --save: target folder (default docs/datasheets, or its '
                     'per-sheet subfolder from the netlist)')
     ap.add_argument('--fresh', action='store_true')
+    ap.add_argument('--sheet-qty', dest='sheet_qty', action='append', default=[], metavar='SHEET=N',
+                    help='bom/check: parts on SHEET (or under it) bought for N boards, not --qty; '
+                         'a variant fitted on some boards (repeatable, e.g. LoRa=2)')
+    ap.add_argument('--vs', default='', metavar='digikey,mouser',
+                    help='bom: price each line on these too (exact MPN) and pick the cheapest '
+                         'supplier set, shipping from config.json `shipping`')
+    ap.add_argument('--alt', type=int, default=0, metavar='N',
+                    help="bom: cheapest drop-in (alt's rules) for the N costliest lines")
+    ap.add_argument('--lcsc-csv', dest='lcsc_csv', default='', metavar='OUT.csv',
+                    help="bom: write the buy list as an upload for LCSC's BOM tool (lcsc.com/bom)")
     ap.add_argument('--json', action='store_true')
     ap.add_argument('--show-ok', dest='show_ok', action='store_true',
                     help='fpcheck: also list the footprints that matched')
