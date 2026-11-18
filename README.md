@@ -162,6 +162,7 @@ skills/
     scripts/           part.py (+ part_*.py modules), kcap.py
     references/        pick, best, endpoints, kcap
 agents/pcb-reviewer.md
+.claude/agents/skill-improver.md   autonomous improvement run on this repo (dev only, not shipped)
 tools/verify.sh        every check a change must pass
 tools/pack.sh          dist/*.skill bundles for claude.ai
 tools/usage.py         how sessions used the tools, from Claude Code's transcripts

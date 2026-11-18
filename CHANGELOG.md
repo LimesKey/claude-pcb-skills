@@ -15,6 +15,11 @@ work is in a local, untracked `BACKLOG.md`.
       Supply`) and text no rule ranks (`Noise`); one cached JLC call `jlc_annotate` made anyway. C85402 now
       holds JLC's Junction Capacitance <= 152 pF (finds C20235797), and the TVS/ESD "lists no capacitance,
       so none is held" note no longer prints when a junction capacitance is held. 2026-11-17.
+- [x] tools - an improvement run had to be scoped by hand each time. Done: `.claude/agents/skill-improver.md`,
+      a project-scoped agent (not shipped with the plugin) that surveys BACKLOG Open, usage.py over every
+      transcript dir that ran the tools, output size, runtime, selftest coverage and churn, picks 1-3 by
+      evidence over effort, implements and verifies under CLAUDE.md, commits per CLAUDE.local.md's git rule,
+      logs leftovers to BACKLOG. It never asks questions (AskUserQuestion disallowed). 2026-11-17.
 - [x] part-search/bom - pricing N boards with a variant on some, across suppliers, took two hand-written
       scripts (a per-sheet buy list, an LCSC vs DigiKey.ca comparison) and a browser session. Done: `bom
       --sheet-qty SHEET=N` (a sheet and its children bought for N boards; per-board cost of the base and each
