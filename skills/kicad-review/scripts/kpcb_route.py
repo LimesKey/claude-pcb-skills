@@ -450,8 +450,21 @@ class Grid:
         def near(bb):
             return bb[2] >= gbox[0] and bb[0] <= gbox[2] and bb[3] >= gbox[1] and bb[1] <= gbox[3]
 
+        xr = (self.x0 - res, self.x0 + self.W * res)    # a shape wholly left or right of the raster paints
+                                                        # nothing, yet cost f(y) per row (a fifth of Clear's rows)
         def paint(ras, shape, R):
             if ras is SINK:
+                return
+            k = shape[0]
+            if k == 'cap':
+                c0, c1, r = min(shape[1][0], shape[2][0]), max(shape[1][0], shape[2][0]), shape[3] + R
+            elif k == 'rot':
+                c0 = c1 = shape[1]['x']
+                r = math.hypot(shape[1]['sx'], shape[1]['sy']) / 2 + R
+            else:                                        # disk (cx, cy, r0), rect (cx, cy, hx, hy)
+                c0 = c1 = shape[1]
+                r = shape[3] + R
+            if c1 + r < xr[0] or c0 - r > xr[1]:
                 return
             y_lo, y_hi, f = _iv(shape, R)
             W = self.W
@@ -504,7 +517,7 @@ class Grid:
             if same:                                     # no via in its own SMD pad
                 if not p['drill'] and ownpads:           # (`stitch --in-pad` judges big pads itself)
                     paint(self.vblk, sh, vsz / 2 + m)
-            else:
+            elif self.vblk is not SINK:                  # (vias=False: no via raster, no rule to look up)
                 c = max(clr(net, p['net'], 'via', 'pad', ly, o2=p['lclr']) for ly in lys) if lys else clr(net, p['net'], o2=p['lclr'])
                 paint(self.vblk, sh, c + extra_clr + vsz / 2 + m)
         for t in b.tracks:
@@ -516,7 +529,8 @@ class Grid:
             B, VB = (self.sblk, self.svblk) if t.get('rid') in soft else (self.blk, self.vblk)
             if t['layer'] in B:
                 paint(B[t['layer']], sh, clr(net, t['net'], 'track', 'track', t['layer']) + extra_clr + w / 2 + m)
-            paint(VB, sh, clr(net, t['net'], 'via', 'track', t['layer']) + extra_clr + vsz / 2 + m)
+            if VB is not SINK:
+                paint(VB, sh, clr(net, t['net'], 'via', 'track', t['layer']) + extra_clr + vsz / 2 + m)
         for v in b.vias:
             r0 = v['size'] / 2
             bb = (v['x'] - r0, v['y'] - r0, v['x'] + r0, v['y'] + r0)
@@ -531,7 +545,8 @@ class Grid:
             for ly in vl:
                 if ly in B:
                     paint(B[ly], sh, clr(net, v['net'], 'track', 'via', ly) + extra_clr + w / 2 + m)
-            paint(VB, sh, max(clr(net, v['net'], 'via', 'via', ly) for ly in vl) + extra_clr + vsz / 2 + m)
+            if VB is not SINK:
+                paint(VB, sh, max(clr(net, v['net'], 'via', 'via', ly) for ly in vl) + extra_clr + vsz / 2 + m)
         for hx_, hy_, hr, *VB in holes:                      # hole to hole, any net
             paint(VB[0] if VB else self.vblk, ('disk', hx_, hy_, hr), vdr / 2 + 0.25 + m)
         # board edge (as capsule obstacles) and outside the outline (scanline)

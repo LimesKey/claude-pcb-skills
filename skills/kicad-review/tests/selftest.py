@@ -1624,6 +1624,27 @@ def twin_board(d):
                       + _tseg(16, 5.25, 10.1, 5.25, 'T') + _tseg(13, 4.75, 10.1, 4.75, 'T'))
 
 
+def kdoc_docs(d):
+    """kdoc's inputs, no poppler needed: an uploader page container named .pdf (3 pages, an image
+    for p1; a phrase broken across lines, 'keepout' and TI's U+2212 minus) and a csv. A third
+    doc is indexed into the cache (KDOC_CACHE, set by main) and its source deleted, for prune"""
+    import zipfile
+    d = os.path.join(d, 'kdoc')
+    os.makedirs(d, exist_ok=True)
+    zp, cp, gone = (os.path.join(d, n) for n in ('LM1234-Q1.pdf', 'pinout.csv', 'gone.csv'))
+    with zipfile.ZipFile(zp, 'w') as z:
+        z.writestr('manifest.json', '{"pages": 3}')
+        z.writestr('1.txt', 'LM1234 Buck Regulator\nThe device has a soft\nstart of 2 ms and an\nenable pin EN.\n')
+        z.writestr('2.txt', '7.3 Feature Description\nThe keepout zone under the\ninductor; range −40 C to 125 C.\n')
+        z.writestr('3.txt', '8 Layout\nPlace the input capacitor next to VIN and GND.\n')
+        z.writestr('1.jpeg', b'\xff\xd8\xff')
+    open(cp, 'w').write('pin,name\n1,VIN\n2,GND\n3,EN\n')
+    open(gone, 'w').write('x\n')
+    run(['kdoc.py', 'index', gone])
+    os.remove(gone)
+    return zp, cp
+
+
 # any board: no ref, pad or net name (GND aside). A board's own go in EXTRA.json.
 GOLDEN = [['kpcb.py', '{pcb}', c] for c in ('summary', 'check', 'span', 'zones', 'rf', 'viapad', 'ic',
                                             'height', 'unplaced', 'sheet', 'map', 'review')] \
@@ -2473,6 +2494,21 @@ def main(pick=(), listing=False, keep=False):
     CASES.append(("kpcb smooth --jogs partial", ['kpcb.py', jog_board(T('part'), True), 'smooth', '--jogs',
                                                  '-o', os.path.join(T('part'), 'nudge', 'j4.kicad_pcb')], 0,
                   ["jogs: 1 collapsed", "of the way (the jog is now"]))
+    os.environ['KDOC_CACHE'] = T('kdoc-cache')        # never the user's ~/.cache/kdoc
+    zp, cp = kdoc_docs(tmp.name)
+    CASES.append(("kdoc index", ['kdoc.py', 'index', zp, cp], 0, ["   3 pages  img", "   1 pages  text"]))
+    CASES.append(("kdoc grep", ['kdoc.py', 'grep', 'soft-start', '-d', zp], 0, ["LM1234_Q1:p1:l2", ">>soft start<<"]))
+    CASES.append(("kdoc grep -p", ['kdoc.py', 'grep', '-40', '-p', '2-3', '-d', zp], 0,
+                  [">>−40<<", "1 hits across 1 doc(s), 1 page(s)"]))
+    CASES.append(("kdoc grep keepout", ['kdoc.py', 'grep', 'keep-out', '-d', zp], 0, ["LM1234_Q1:p2:l2  ...", ">>keepout<<"]))
+    CASES.append(("kdoc grep none", ['kdoc.py', 'grep', 'nothinghere', '-d', zp], 1, ["no hits for 'nothinghere' in 1 doc(s)"]))
+    CASES.append(("kdoc text range", ['kdoc.py', 'text', zp, '2-3'], 0, ["=== LM1234_Q1 p2", "=== LM1234_Q1 p3", "8 Layout"]))
+    CASES.append(("kdoc page", ['kdoc.py', 'page', zp, 'p1'], 0, [os.path.join('LM1234_Q1', '1.jpeg')]))
+    CASES.append(("kdoc near", ['kdoc.py', 'near', 'capacitor', 'GND', '-d', zp], 0, ["LM1234_Q1:p3", "1 page(s) contain both"]))
+    CASES.append(("kdoc toc", ['kdoc.py', 'toc', '-d', zp], 0, ["  p2       7.3 Feature Description"]))
+    CASES.append(("kdoc csv", ['kdoc.py', 'grep', 'EN', '-d', cp], 0, ["pinout_csv:p1:l4"]))
+    CASES.append(("kdoc list", ['kdoc.py', 'list'], 0, ["gone_csv", "(source gone: `kdoc.py prune`)"]))
+    CASES.append(("kdoc prune", ['kdoc.py', 'prune'], 0, ["removed gone_csv", "pruned 1 slot(s) whose source is gone"]))
     if listing:
         print('\n'.join(c[0] for c in CASES)); return 0
     if pick:                       # -k: matching cases only; the ad-hoc checks below read every case's output

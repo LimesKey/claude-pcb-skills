@@ -3,6 +3,26 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kpcb tracks - each shown `jog` row scanned the whole board: `blockers` ran the clearance
+      rule and an exact distance for every via, track and pad (1.2M rule look-ups for 171 rows), and `verdict`
+      built a fresh Clear (a 0.1 s raster) per jog though jogs share chains (171 jogs, 118 chains). `tracks
+      --max 999` took 19.6 s on the reference board (11 such calls in the transcripts), `--kind jog --max 999`
+      13.4 s. Done: `blockers` skips an item whose box is beyond its clearance of the changed polyline's box
+      (distance >= the axis gap, so exact) and memoises the rule per (net, kind, own clearance); the display
+      keeps one Clear per chain (`verdict(cks=)`); Grid's `paint` skips a shape wholly left or right of its
+      raster and, with `vias=False`, the via raster's rule look-ups. Now 12.0 s and 7.5 s, `smooth --jogs`
+      20.3 -> 16.6 s; `tracks`, both `--max 999` outputs and the `smooth`/`smooth --jogs` boards (fresh uuids
+      aside) byte-identical. 2026-11-18.
+- [x] kicad-review/kpcb_copper - a second Copper of the same net (`clip_only`'s clip-free build, `review`'s
+      two) redid the fill-to-fill touch test, ~0.35 s of GND's 0.75 s build. Done: the result is memoised per
+      PolyIndex pair (stale exactly when `_pidx` is). `net GND` 2.38 -> 2.01 s, `review` 3.32 -> 2.89 s,
+      identical output. 2026-11-18.
+- [x] kicad-review/kdoc - the most-called tool (311 calls in 8 days on the reference project: grep 183,
+      text 58, page 48) had one CLI selftest case, a usage error; the `text DOC 5-7` crash of 2026-11-13 was
+      in an untested path. Done: `kdoc_docs` builds an uploader page container (3 pages, an image) and a
+      csv in a temp `KDOC_CACHE` (the suite never touches `~/.cache/kdoc`), plus a doc whose source is then
+      deleted; 12 cases: index, grep (line-wrap, dash and `keep-out` folding, `-p`, no hits), `text DOC 2-3`,
+      `page DOC p1`, near, toc, csv, list (source gone), prune. 2026-11-18.
 - [x] kicad-review/kpcb tracks - `--kind K` printed only K's rows but ran the whole census first (12 s on
       the reference board; 17 of 34 `tracks` calls in a week passed `--kind`), and a misspelt kind listed
       nothing. Done: `census_rows(kinds=)` runs only the passes the asked kinds need (`cleanup`/`deadend`

@@ -369,9 +369,13 @@ class Copper:
                 # one's points that fall in the small one's box
                 (sp, sb, si), (lp, _b, li) = sorted(((fl['pts'], fb, idx), (g['pts'], gb, fidx[j2])),
                                                     key=lambda z: len(z[0]))
-                if any(li.touches(q) for q in sp) or \
-                        any(si.touches(q) for q in lp if sb[0] - .01 <= q[0] <= sb[2] + .01
-                            and sb[1] - .01 <= q[1] <= sb[3] + .01):
+                memo = si.__dict__.setdefault('_touch', {})    # per index pair, as _pidx is per fill: a
+                hit = memo.get(id(li))                          # second Copper of the net (clip_only, review)
+                if hit is None or hit[0] is not li:             # skips half of GND's build
+                    hit = memo[id(li)] = (li, any(li.touches(q) for q in sp) or
+                                          any(si.touches(q) for q in lp if sb[0] - .01 <= q[0] <= sb[2] + .01
+                                              and sb[1] - .01 <= q[1] <= sb[3] + .01))
+                if hit[1]:
                     U.union(('fill', j2), ('fill', j))
         # track pieces between tee points = the series elements
         self.edges = []                              # (key a, key b, track, length)

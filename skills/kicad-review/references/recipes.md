@@ -254,7 +254,9 @@ the label the command's name so `-k` finds it. Static fixtures beside it in `tes
 `(transform ...)` form, must give identical `check`), `selftest.net`,
 `selftest_amp2`/`selftest_cross.kicad_pcb` (ampacity), `selftest_repeat/` (one sheet
 used twice). `kdrc`, `kmerge` and `height` need kicad-cli, so they are verified
-against the real board (the goldens), not here. `sync` on the two static fixtures
+against the real board (the goldens), not here. `kdoc`'s cases run on `kdoc_docs` (an
+uploader page container and a csv, in a temp `KDOC_CACHE`); real-PDF extraction (pdftotext)
+is not covered. `sync` on the two static fixtures
 is the negative test: they are deliberately different circuits, so all five SYNC
 rules fire at once.
 

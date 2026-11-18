@@ -14,7 +14,7 @@ for the next. No collapse may squeeze a plane channel under its min width (`neck
 jog seeing the ones laid before it."""
 import math
 from kpcb_smooth import Clear, Index, chains, keeps, simplify, ang, turn, length, seg_pad_dist, on_layer
-from kpcb_board import pt_seg_dist, seg_seg_dist
+from kpcb_board import pt_seg_dist, seg_seg_dist, pad_box
 from kpcb_zones import _clearance_fn
 from kpcb_move import via_layers
 
@@ -118,22 +118,40 @@ def blockers(b, net, ly, w, loc, clr=None):
     ('pad', (ref, pad))]. A geometric list for the report; Clear is the verdict"""
     clr = clr or _clearance_fn(b)[0]
     segs = list(zip(loc, loc[1:]))
+    x0, y0, x1, y1 = min(x for x, _ in loc), min(y for _, y in loc), max(x for x, _ in loc), max(y for _, y in loc)
+    memo = {}                                        # every jog's row scans the whole board: per (net, kind, own)
+
+    def C(n2, kind, o2=0.0):
+        c = memo.get((n2, kind, o2))
+        if c is None:
+            c = memo[n2, kind, o2] = clr(net, n2, 'track', kind, ly, o2=o2)
+        return c
+
+    def far(u0, v0, u1, v1, g):                      # a box this far from loc's box is beyond g of every
+        g += 1e-9                                    # segment (distance >= the axis gap): exact
+        return u0 - x1 > g or x0 - u1 > g or v0 - y1 > g or y0 - v1 > g
     out = []
     for v in b.vias:
         if v['net'] != net:
-            g = clr(net, v['net'], 'track', 'via', ly) + v['size'] / 2 + w / 2
-            if any(pt_seg_dist((v['x'], v['y']), s0, s1) < g for s0, s1 in segs):
+            g = C(v['net'], 'via') + v['size'] / 2 + w / 2
+            if not far(v['x'], v['y'], v['x'], v['y'], g) and \
+                    any(pt_seg_dist((v['x'], v['y']), s0, s1) < g for s0, s1 in segs):
                 out.append(('via', v))
     for t in b.tracks:
         if t['net'] != net and t['layer'] == ly:
-            g = clr(net, t['net'], 'track', 'track', ly) + (t['w'] + w) / 2
-            if any(seg_seg_dist(s0, s1, t['a'], t['b']) < g for s0, s1 in segs):
+            g = C(t['net'], 'track') + (t['w'] + w) / 2
+            (ax, ay), (bx, by) = t['a'], t['b']
+            if not far(min(ax, bx), min(ay, by), max(ax, bx), max(ay, by), g) and \
+                    any(seg_seg_dist(s0, s1, t['a'], t['b']) < g for s0, s1 in segs):
                 out.append(('trk', t))
     for f in b.fps.values():
         for p in f.pads if f.placed else ():
-            if p['net'] != net and on_layer(p, ly) and \
-                    any(seg_pad_dist(s0, s1, p) < w / 2 + clr(net, p['net'], 'track', 'pad', ly, o2=p['lclr']) for s0, s1 in segs):
-                out.append(('pad', (f.ref, p['num'])))
+            if p['net'] != net and on_layer(p, ly):
+                g = w / 2 + C(p['net'], 'pad', p['lclr'])
+                r = math.hypot(p['sx'], p['sy']) / 2          # seg_pad_dist: within r of the anchor, or pad_box
+                bb = pad_box(p) if p['prims'] else (p['x'] - r, p['y'] - r, p['x'] + r, p['y'] + r)
+                if not far(*bb, g) and any(seg_pad_dist(s0, s1, p) < g for s0, s1 in segs):
+                    out.append(('pad', (f.ref, p['num'])))
     return out
 
 
@@ -146,10 +164,14 @@ def describe(bl):
     return one + (f" +{len(bl) - 1}" if len(bl) > 1 else '')
 
 
-def verdict(b, net, ly, w, order, pts, k, skip=()):
+def verdict(b, net, ly, w, order, pts, k, skip=(), cks=None):
     """which side collapses now, else what blocks each side (the `tracks` row); a promise of
-    `--jogs` only when lifting the via really clears it"""
-    ck, why = Clear(b, net, ly, w, pts, order), []
+    `--jogs` only when lifting the via really clears it. cks: a dict the caller keeps across
+    rows of an unchanged board, so jogs of one chain (171 jogs, 118 chains) share its Clear"""
+    cks, why = {} if cks is None else cks, []
+    ck = cks.get(key := (net, ly, w, tuple(order), tuple(pts)))
+    if ck is None:
+        ck = cks[key] = Clear(b, net, ly, w, pts, order)
     for tag, new, loc in capped(pts, k):
         if ck.poly(loc):
             return f"fix: smooth --jogs ({tag})"

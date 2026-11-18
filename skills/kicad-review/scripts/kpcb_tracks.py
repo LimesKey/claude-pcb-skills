@@ -609,7 +609,7 @@ def c_tracks(b, a):
     if lays:
         print("  per layer: " + ' | '.join(f"{ly} {per[(ly, 'acute')]} acute {per[(ly, '90')]} x90 "
                                            f"{per[(ly, 'off45')]} off45" for ly in lays))
-    shown, ix, taken = [], None, None
+    shown, ix, taken, cks = [], None, None, {}
     for k in kinds:
         order = {'': 0, 'width step': 1, 'T': 2, 'frozen': 3}
         rs = sorted((r for r in rows if r[0] == k), key=lambda r: order.get(r[5], 4))   # what a pass can take first
@@ -618,9 +618,9 @@ def c_tracks(b, a):
         print(f"\n{label[k]} ({len(rs)}):")
         for r in rs[:a.max]:
             why = r[5]
-            if k == 'jog':                           # priced only when shown: a Clear per jog
+            if k == 'jog':                           # priced only when shown: a Clear per chain
                 from kpcb_jogs import verdict
-                why = verdict(b, *r[6], skip=skip)
+                why = verdict(b, *r[6], skip=skip, cks=cks)
             elif k == 'joint':                       # likewise: a Clear per end it moves
                 ix = ix or Index(b)
                 mv, why = close_joint(b, ix, *r[6])
