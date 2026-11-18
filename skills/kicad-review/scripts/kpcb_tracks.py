@@ -208,14 +208,17 @@ def anchor_ends(b, ix, skip):
     return sorted(out, key=lambda r: -r[0])
 
 
-def census_rows(b, skip, box=None):
+def census_rows(b, skip, box=None, kinds=None):
     """(Counter, rows): rows (kind, net, layer, xy, detail, why, (node, i1, i2) | None);
-    box: only nodes, segments and rows inside X0,Y0,X1,Y1"""
+    box: only nodes, segments and rows inside X0,Y0,X1,Y1; kinds: only the passes those need run
+    (`--kind cleanup` skips the corner, jog and pad passes: 12 -> 5 s on the reference board), so
+    the other kinds' counts are partial"""
     ix = Index(b)
     c, rows = Counter(), []
+    want = lambda *ks: kinds is None or not kinds.isdisjoint(ks)   # noqa: E731
     far = lambda t, n: t['b'] if q(t['a']) == n else t['a']    # noqa: E731
     inb = lambda p: not box or (box[0] <= p[0] <= box[2] and box[1] <= p[1] <= box[3])   # noqa: E731
-    for (net, ly, n), lst in ix.ends.items():
+    for (net, ly, n), lst in ix.ends.items() if want('acute', '90', 'neck') else ():
         if net in skip or len(lst) != 2 or not inb(n):
             continue
         t1, t2 = b.tracks[lst[0]], b.tracks[lst[1]]
@@ -247,7 +250,7 @@ def census_rows(b, skip, box=None):
             continue
         c['segs'] += 1
         c['mm'] += t['len']
-        if not octi(t['a'], t['b']):
+        if want('off45') and not octi(t['a'], t['b']):
             if covered(b, ix, t['net'], t['layer'], t['mid'], t['w'], {i}):
                 c['hidden off45'] += 1
             else:
@@ -259,13 +262,13 @@ def census_rows(b, skip, box=None):
                 rows.append(('off45', t['net'], t['layer'], t['mid'], f"{t['len']:.2f} mm at {r:.0f} deg" if dv >= 0.3 else
                              f"{t['len']:.2f} mm, end {t['len'] * math.sin(math.radians(dv)) * 1000:.0f} um off "
                              f"{45 * round(r / 45) % 180} deg", 'pad end (smooth --square)' if pe else 'via end' if ve else '', None))
-        if t['len'] < 0.05:
+        if want('stub') and t['len'] < 0.05:
             if covered(b, ix, t['net'], t['layer'], t['mid'], t['w'], {i}):
                 c['hidden stub'] += 1
             else:
                 c['stub'] += 1
                 rows.append(('stub', t['net'], t['layer'], t['mid'], f"{t['len'] * 1000:.0f} um", 'smooth --micro', None))
-    for i, E, lab, p in pad_ends(b, ix, skip, inside=True):
+    for i, E, lab, p in pad_ends(b, ix, skip, inside=True) if want('pad') else ():
         if not inb(E):
             continue
         if pad_dist(p, E, True) <= -GRAZE:
@@ -274,12 +277,12 @@ def census_rows(b, skip, box=None):
         c['pad'] += 1
         rows.append(('pad', b.tracks[i]['net'], b.tracks[i]['layer'], E,
                      f"{math.dist(E, (p['x'], p['y'])):.2f} mm off {lab}", 'fix: smooth --pads', None))
-    for off, i, E, lab in anchor_ends(b, ix, skip):
+    for off, i, E, lab in anchor_ends(b, ix, skip) if want('anchor') else ():
         if inb(E):
             c['anchor'] += 1
             rows.append(('anchor', b.tracks[i]['net'], b.tracks[i]['layer'], E, f"{off * 1000:.0f} um off {lab}",
                          'by hand (KiCad joins it as laid)', None))
-    for gap, i, E, j, E2 in sorted(cap_joints(b, ix, skip), key=lambda r: -r[0]):
+    for gap, i, E, j, E2 in sorted(cap_joints(b, ix, skip) if want('joint') else (), key=lambda r: -r[0]):
         t = b.tracks[i]
         if not inb(E):
             continue
@@ -290,25 +293,25 @@ def census_rows(b, skip, box=None):
         rows.append(('joint', t['net'], t['layer'], E, f"{gap * 1000:.0f} um {'end to end' if E2 else 'off the T axis'}",
                      '', (gap, i, E, j, E2)))
     from kpcb_jogs import find
-    chs = chains(b, skip, ix)                        # jogs, overlaps and twins walk the same chains
-    for jog in find(b, skip, every=True, chs=chs):
+    chs = chains(b, skip, ix) if want('jog', 'overlap', 'twin') else []   # jogs, overlaps, twins walk the same chains
+    for jog in find(b, skip, every=True, chs=chs) if want('jog') else ():
         if not inb(jog[4][jog[5]]):
             continue
         c['jog'] += 1
         rows.append(('jog', jog[0], jog[1], jog[4][jog[5]], f"{jog[6]:.2f} mm sideways", '', jog[:6]))
-    for net, ly, lab, p, A, B, brg in pad_joins(b, skip, ix, chs):
+    for net, ly, lab, p, A, B, brg in pad_joins(b, skip, ix, chs) if want('overlap') else ():
         if inb((p['x'], p['y'])):
             c['overlap'] += 1
             rows.append(('overlap', net, ly, (p['x'], p['y']), f"two runs only through {lab}"
                          + (f" (+{len(brg)} bridge)" if brg else ''), 'smooth --overlaps', None))
-    for net, ly, lab, far, near, par, mid in twins(b, skip, ix, chs):
+    for net, ly, lab, far, near, par, mid in twins(b, skip, ix, chs) if want('twin') else ():
         if inb(mid):
             c['twin'] += 1
             rows.append(('twin', net, ly, mid, f"{par:.1f} mm beside its twin into {lab}", 'smooth --twins', None))
     from kpcb_route import _planes
     planes = {n for n, _l in _planes(b)}
-    inp = set()
-    for i in in_pour(b, box=box, every=True):
+    inp = set()                                      # deadend reads it: a branch wholly in fill is an inpour row
+    for i in in_pour(b, box=box, every=True) if want('inpour', 'inpourpwr', 'deadend') else ():
         t = b.tracks[i]
         if t['net'] in skip:
             continue
@@ -320,7 +323,7 @@ def census_rows(b, skip, box=None):
                      else f"ripup {unesc_disp(t['net'].split('/')[-1])} --inpour (opt-in: may it rely on its fill?)", None))
     from kpcb_copper import dead_all, dead_desc
     dead = set()                                     # what KiCad's dangling pass deletes: wholly dead tracks, vias
-    for net, ds in dead_all(b).items():
+    for net, ds in dead_all(b).items() if want('deadend', 'cleanup') else ():
         rf = 'RF' in (b.netclass(net) or '').upper()
         for d in ds if net not in skip else ():
             dead |= {id(t) for t, _mm, keep in d['tracks'] if keep is None} | {id(v) for v in d['vias']}
@@ -332,20 +335,20 @@ def census_rows(b, skip, box=None):
                 c['deadend'] += 1
                 rows.append(('deadend', net, (d['layers'] or ['-'])[0], at, dead_desc(d).split(' off ')[0],
                              'INFO: an RF stub (matching?)' if rf else 'off ' + d['off'].split(' @')[0] + '; ripup --deadend', d))
-    for k, z, desc, fix in zone_rows(b):
+    for k, z, desc, fix in zone_rows(b) if want('zonepts', 'zonedup') else ():
         bb = bbox(z.outline)
         at = ((bb[0] + bb[2]) / 2, (bb[1] + bb[3]) / 2)
         if inb(at):
             c[k] += 1
             rows.append((k, z[0], ','.join(z[1]), at, desc, fix, None))
     from kpcb_dense import detours
-    for _x, net, L, M, V, n, ly in detours(b, skip):
+    for _x, net, L, M, V, n, ly in detours(b, skip) if want('detour') else ():
         c['detour'] += 1
         at = next(((p['x'], p['y']) for f in b.placed() for p in f.pads if p['net'] == net), (0.0, 0.0))
         if not inb(at):
             continue
         rows.append(('detour', net, ly, at, f"{L:.1f} vs MST {M:.1f} mm, {V} via", 'reroute ' + unesc_disp(net.split('/')[-1]), None))
-    for r in cleanup_rows(b, ix, skip, dead):
+    for r in cleanup_rows(b, ix, skip, dead) if want('cleanup') else ():
         if inb(r[3]):
             c['cleanup'] += 1
             rows.append(r)
@@ -574,11 +577,20 @@ KINDS = ('acute', '90', 'off45', 'neck', 'stub', 'pad', 'anchor', 'joint', 'over
          'inpourpwr', 'deadend', 'zonepts', 'zonedup', 'cleanup')
 
 
+def kind_arg(s):
+    """argparse type for --kind: a misspelt kind ran no pass and listed nothing"""
+    bad = [k for k in s.split(',') if k and k not in KINDS]
+    if bad:
+        import argparse
+        raise argparse.ArgumentTypeError(f"{','.join(bad)!r}: no such kind; one of {','.join(KINDS)}")
+    return s
+
+
 def c_tracks(b, a):
     skip = set() if a.all else skipped(b)
     box = tuple(float(v) for v in a.box.split(',')) if a.box else None
-    c, rows = census_rows(b, skip, box)
     kinds = [k for k in KINDS if not a.kind or k in a.kind.split(',')]
+    c, rows = census_rows(b, skip, box, set(kinds) if a.kind else None)
     print(f"tracks{' in ' + a.box if box else ''}: {c['segs']} segments, {c['mm']:.1f} mm, {c['arc']} arc(s)"
           + (f"; {len(skip)} RF/USB/diff-pair net(s) skipped (--all includes them)" if skip else ''))
     label = {'acute': 'corners, acute', '90': 'corners 46-90 deg', 'off45': 'off-45 segments',
@@ -586,12 +598,13 @@ def c_tracks(b, a):
              'anchor': 'ends off a small pad anchor', 'joint': 'joined only by end caps', 'overlap': 'joined only through pad', 'twin': 'twin runs into one pad', 'jog': 'lane jogs 0.05-1 mm', 'detour': 'detours (> 1.5x MST)', 'inpour': 'plane tracks inside fill', 'inpourpwr': 'other tracks inside fill',
              'deadend': 'dead branches (no pad)', 'zonepts': 'zones hard to edit', 'zonedup': 'zones over own-net zone',
              'cleanup': 'KiCad cleanup would change'}
-    for k in KINDS:
+    for k in kinds:                                  # --kind: only the passes it needs ran
         print(f"  {label[k]:<22} {c[k]:>4} visible" + (f"  ({c['hidden ' + k]} hidden under same-net copper)"
                                                       if 'hidden ' + k in c else '')
               + (f"  ({c['inside pad']} more end inside their pad off centre: fine as KiCad joins; `anchor` lists"
                  f" signal ends on pads <= {SMALL_PAD:g} mm)" if k == 'pad' and c['inside pad'] else ''))
-    per = Counter((r[2], r[0]) for r in rows if r[0] in ('acute', '90', 'off45'))
+    per = Counter((r[2], r[0]) for r in rows if r[0] in ('acute', '90', 'off45')
+                  and {'acute', '90', 'off45'} <= set(kinds))
     lays = sorted({ly for ly, _k in per}, key=lambda ly: b.copper.index(ly) if ly in b.copper else 99)
     if lays:
         print("  per layer: " + ' | '.join(f"{ly} {per[(ly, 'acute')]} acute {per[(ly, '90')]} x90 "

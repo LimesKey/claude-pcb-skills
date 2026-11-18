@@ -913,6 +913,18 @@ def _alt_hold(name, value):
         return ('>=' if rule == 'ge' else '<=') + fmt_si(x)
     return None
 
+def _merge_jlc(p, jp):
+    """LCSC's parameters plus the ranked ones only JLC lists (C408972's Voltage Dropout,
+    C89600's Resistance Tolerance); all of JLC's when LCSC lists none. A JLC name that is an
+    alias of an LCSC one (`standby current` = 'Supply Current (Iq)') is that rating again, and
+    a name no _ALT_RULES pattern ranks (`Noise`, `level of protection`) only adds a text equality"""
+    jp = [(n, v) for n, v in jp or [] if v not in (None, '', '-')]
+    if not p:
+        return jp
+    have = {_norm(n) for n, _v in p}
+    return list(p) + [(n, v) for n, v in jp if not have & set(alias_keys(n)) and _alt_hold(n, v)
+                      and any(re.search(pat, n.lower()) for _r, pat in _ALT_RULES)]
+
 def c_alt(a):
     """Cheaper/stocked/Basic equivalents of a part already on the board: same JLC
     category and package, equal-or-better on every parameter _alt_hold ranks."""
@@ -923,9 +935,8 @@ def c_alt(a):
         print(f"alt: {a.args[0]} not found"); return 1
     b = base[0]
     p = b.get('params') or []
-    if not p and b.get('source') == 'LCSC':   # LCSC lists none for some (C113132), JLC does
-        p = b['params'] = [(n, v) for n, v in ((jlc_detail(b['sku'], a.fresh) or {}).get('params') or [])
-                           if v not in (None, '', '-')]
+    if b.get('source') == 'LCSC':      # LCSC lists none for some (C113132), fewer for others: JLC's too
+        p = b['params'] = _merge_jlc(p, (jlc_detail(b['sku'], a.fresh) or {}).get('params'))
     a.pkg = a.pkg or b.get('package')
     used = set()
     for k in ('cap', 'res', 'ind', 'volt', 'tol', 'diel'):   # passives: exact names only
@@ -953,7 +964,8 @@ def c_alt(a):
         print(f"alt: {b.get('sku')} lists no rated parameter on LCSC or JLC, so only the package "
               f"would be held. Give the limits: part.py pick --like {b.get('sku')} --w 'NAME=SPEC'")
         return 1
-    if re.search(r'TVS|ESD', b.get('category') or '') and not _exact(p, 'cap')[0]:
+    if re.search(r'TVS|ESD', b.get('category') or '') and not _exact(p, 'cap')[0] \
+            and not any('capacitance' in n.lower() for n, _s in holds):     # JLC's Junction Capacitance is held
         print(f"note: {b.get('sku')} lists no capacitance, so none is held - on an RF or "
               f"high-speed line check each candidate's C in its datasheet")
     # numeric limits first (they become the table columns), secondary ratings last
@@ -1015,6 +1027,13 @@ def _pick_selftest():
                                       ('Voltage - Breakdown', '15V'), ('Capacitance', '0.06pF'))]
         == ['15V', None, '10kΩ', '3380K', '>=15', '<=0.06p'],
         make_pred('<=0.06p')[0]('0.05pF') and not make_pred('<=0.06p')[0]('0.5pF'),
+        # alt of an LCSC part: JLC's ranked extras join, its aliases and unranked text do not
+        _merge_jlc([('Supply Current (Iq)', '34uA'), ('Operating Voltage', '5.5V')],
+                   [('standby current', '34uA'), ('Voltage - Supply', '5.5V'), ('Voltage Dropout', '125mV@(300mA)'),
+                    ('Noise', '120uVrms'), ('Resistance Tolerance', '±1%'), ('Features', 'OCP')])
+        == [('Supply Current (Iq)', '34uA'), ('Operating Voltage', '5.5V'), ('Voltage Dropout', '125mV@(300mA)'),
+            ('Resistance Tolerance', '±1%')],
+        _merge_jlc([], [('Noise', '120uVrms'), ('Width', '-')]) == [('Noise', '120uVrms')],
     ]
     # JLC server-side filter: facet values the local predicate accepts, '-' never
     cons = [(n, lab, make_pred(lab)[0]) for n, lab in (('volt', '>=25'), ('cap', '10u'))]

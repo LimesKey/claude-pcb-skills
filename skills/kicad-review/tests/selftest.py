@@ -76,6 +76,7 @@ CASES = [
     ("kpcb map",     ['kpcb.py', PCB, 'map'],                   0, []),
     ("kpcb box arg", ['kpcb.py', PCB, 'tracks', '--box', '1,2'], 2, ["argument --box: '1,2': want X0,Y0,X1,Y1"]),  # was an IndexError
     ("kpcb box order", ['kpcb.py', PCB, 'tracks', '--box', '40,30,0,0'], 0, ["tracks in 0,0,40,30:"]),  # reversed: was empty
+    ("kpcb kind arg", ['kpcb.py', PCB, 'tracks', '--kind', 'cleanup,dedend'], 2, ["argument --kind: 'dedend': no such kind"]),
     ("kpcb span",    ['kpcb.py', PCB, 'span'],                  0, ["1 net(s)"]),
     ("kpcb sheet",   ['kpcb.py', PCB, 'sheet'],                 0, ["/Test/", "/Test/Spare/"]),
     ("kpcb sync",    ['kpcb.py', PCB, 'sync', NET],             2, ["23 error, 7 warn"]),
@@ -2360,7 +2361,7 @@ def main(pick=(), listing=False, keep=False):
     CASES.append(("kpcb smooth --micro result", ['kpcb.py', os.path.join(tmp.name, 'micro', 'm2.kicad_pcb'), 'tracks'], 0,
                   ["segments < 0.05 mm        0 visible", "tracks: 3 segments, 18.0 mm"]))
     pib = pwr_inpour_board(tmp.name)
-    CASES.append(("kpcb tracks inpourpwr", ['kpcb.py', pib, 'tracks', '--kind', 'inpourpwr'], 0,
+    CASES.append(("kpcb tracks inpourpwr", ['kpcb.py', pib, 'tracks', '--kind', 'inpour,inpourpwr'], 0,
                   ["plane tracks inside fill    0 visible", "other tracks inside fill    1 visible",
                    "ripup PWR --inpour (opt-in: may it rely on its fill?)"]))
     CASES.append(("kpcb ripup NET --inpour non-plane", ['kpcb.py', pib, 'ripup', 'PWR', '--inpour', '-o',
@@ -2489,6 +2490,8 @@ def main(pick=(), listing=False, keep=False):
         prob += [f"missing {n!r}" for n in needles if n not in out]
         if label in ("ksch render", "knet draw multi-pin verify") and ("ERROR" in out or "overlaps" in out):
             prob.append("ERROR line in render output")
+        if label == "kpcb tracks zonepts" and "corners, acute" in out:
+            prob.append("--kind zonepts ran (and printed) the other passes")
         if label == "kpcb sync art" and "REF** (Logo" in out:
             prob.append("the board_only logo was warned as deletable")
         if label == "kpcb amp-tap" and "near TH2" in out:

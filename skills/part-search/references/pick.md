@@ -119,7 +119,10 @@ both top 3 in one spec table, with no verdict. Needs credentials (endpoints.md).
 
 ## alt: what "equal or better" holds
 
-`alt C..` looks the part up, then pools its exact JLC category and package. Passive
+`alt C..` looks the part up, then pools its exact JLC category and package. The
+parameters held are LCSC's plus the ranked ones only JLC lists (C408972's Voltage
+Dropout); a JLC spelling of one LCSC lists (`standby current` for `Supply Current
+(Iq)`) and text no rule ranks (`Noise`) are left out. Passive
 value, voltage, tolerance and dielectric hold as before (value equal, voltage >=,
 tolerance <=, dielectric same class or better). Every other parameter goes through a
 direction table: voltage/current/power ratings `>=`; RDS(on), Vf, leakage, clamping,

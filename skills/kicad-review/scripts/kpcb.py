@@ -192,7 +192,7 @@ from kpcb_route import c_airwires, c_pairs, c_route, _segd
 from kpcb_place import c_place
 from kpcb_power import c_fatten, c_stitch, c_vscan
 from kpcb_smooth import c_smooth
-from kpcb_tracks import c_tracks, c_widen, c_loops
+from kpcb_tracks import c_tracks, c_widen, c_loops, kind_arg
 from kpcb_diff import c_diff
 from kpcb_dense import c_congest, c_fanout, c_reroute
 
@@ -1162,8 +1162,9 @@ def main():
                     'neighbours (each end a two-track node or a via, never a pad) takes their width where clear')
     ap.add_argument('--uniform-power', action='store_true', help='for `widen`: per power run, also raise every '
                     'segment to the run\'s widest where clear (never narrows); reports the width steps left')
-    ap.add_argument('--kind', default='', help='for `tracks`: only these rows: acute,90,off45,neck,stub,pad,anchor,joint,'
-                                               'overlap,twin,jog,detour,inpour,inpourpwr,deadend,zonepts,zonedup,cleanup')
+    ap.add_argument('--kind', default='', type=kind_arg, help='for `tracks`: only these rows, and only their passes run: '
+                    'acute,90,off45,neck,stub,pad,anchor,joint,overlap,twin,jog,detour,inpour,inpourpwr,deadend,zonepts,'
+                    'zonedup,cleanup')
     ap.add_argument('--show', action='store_true', help='for `refdes`: also place (and unhide) hidden designators')
     ap.add_argument('--size', type=float, default=None, help='for `refdes`: designator text height, mm (default: kept, >= the fab minimum); '
                     'for `pinlabels`/`label`: text height (default 1, >= the fab minimum)')

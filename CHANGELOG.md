@@ -3,6 +3,18 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kpcb tracks - `--kind K` printed only K's rows but ran the whole census first (12 s on
+      the reference board; 17 of 34 `tracks` calls in a week passed `--kind`), and a misspelt kind listed
+      nothing. Done: `census_rows(kinds=)` runs only the passes the asked kinds need (`cleanup`/`deadend`
+      ~5 s, corner kinds and `zonepts` ~1 s), the header counts only those kinds, `--kind` is checked by
+      argparse (exit 2, the kinds listed). Every kind's rows and header line byte-identical to the full
+      census on the reference board; the full census unchanged. 2026-11-17.
+- [x] part-search/alt - `alt` held only the ratings LCSC lists; JLC lists more for some parts. Done:
+      `_merge_jlc` adds JLC's ranked parameters LCSC lacks (C408972 now holds Voltage Dropout <= 125 mV,
+      C89600 Resistance Tolerance), skipping a JLC alias of an LCSC name (`standby current`, `Voltage -
+      Supply`) and text no rule ranks (`Noise`); one cached JLC call `jlc_annotate` made anyway. C85402 now
+      holds JLC's Junction Capacitance <= 152 pF (finds C20235797), and the TVS/ESD "lists no capacitance,
+      so none is held" note no longer prints when a junction capacitance is held. 2026-11-17.
 - [x] part-search/bom - pricing N boards with a variant on some, across suppliers, took two hand-written
       scripts (a per-sheet buy list, an LCSC vs DigiKey.ca comparison) and a browser session. Done: `bom
       --sheet-qty SHEET=N` (a sheet and its children bought for N boards; per-board cost of the base and each
