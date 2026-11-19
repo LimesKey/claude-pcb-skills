@@ -10,8 +10,8 @@ centres 1329/1329).
 Code map (to patch one command, open only its module): `kpcb.py` is the CLI plus
 summary/where/map/sheet/unplaced/span/net/sync/review; the Board model, part
 classification regexes and geometry are `kpcb_board.py`; `check` rules are
-`kpcb_check.py`; `ic`, `zones`, `ampacity`, `viapad`, `rf`, `height`, `view`,
-`freebox`, `tidy`, `diff` are `kpcb_<ic|zones|amp|viapad|rf|height|view|freebox|tidy|diff>.py`,
+`kpcb_check.py`; `ic`, `zones`, `ampacity`, `viapad`, `assembly`, `rf`, `height`, `view`,
+`freebox`, `tidy`, `diff` are `kpcb_<ic|zones|amp|viapad|assembly|rf|height|view|freebox|tidy|diff>.py`,
 `silk` + `refdes` are `kpcb_silk.py`, `tracks` + `widen` + `loops` are `kpcb_tracks.py`,
 and `movecheck` (with KiCad's Drag model, `drag_set`/`drag_plan`) is `kpcb_move.py`.
 `kpcb_copper.py` is one net's copper as a graph (pads, tracks split at tees, via barrels,
@@ -57,6 +57,7 @@ carry F.SilkS art), so `summary`, `map` and `where` count it on the art's side.
 | `zones --voids [--area 2]` | copper-free regions in the plane pour (removed islands) and, for each, a via spot that clears everything and lands in the plane on another layer. See below. |
 | `vias` | every via by size / drill / layer span (through or blind), the top nets on each, and the worst drill aspect ratio against the stackup thickness. |
 | `viapad [--signal] [--min N]` | every SMD pad a via's drill reaches into (its mask opening, real pad shape), small pads first, depth per pad, GND/PWR/SIG, advice from the board's via protection. See below. |
+| `assembly` | hand assembly from footprint geometry: parts to fit per side (not DNP, in the BOM), BOM lines, SMD/THT pads (a plated hole numbered as an SMD pad is a thermal via, not a joint), counts by Fab body size (0201-size = longer side <= 0.8 mm, 0402 <= 1.25, 0603 <= 1.8, 0805 <= 2.3, 1206 <= 3.5), and the parts needing paste + reflow or hot air, finest pitch first: an SMD pad wholly inside the Fab outline (skipped for an edge-launch part) or ringed by the other pads (an exposed pad, found without a Fab outline too), or pitch <= 0.5 mm (closest centres of two separate lands of different pins; none for a two-terminal part). Per footprint and side: pitch, smallest pad, pads under / pads, body. Package names are never read. |
 | `where REF.PAD ...` | a pad's absolute centre, size, layer, net and nearest same-net pads. Two specs (pads, refs or x,y) also print the distance between them. |
 | `net NET` | every pad on a net with absolute xy, copper per layer (segments, length, width range), vias, zones, extent, and whether the copper is **one piece** (else the pads in each cut-off piece) plus padless islands, a `note` for a pad whose only join is a track body clipping its corner (centreline misses, no end on it: KiCad counts it, a marginal join), then a `dead` line per branch that serves no pad (non-plane nets; `ripup --deadend`). Accepts the short name (`LORA_ANT`). |
 | `rf [NET...]` | 50-ohm trace review. No net = every net whose netclass names RF/50. See below. |

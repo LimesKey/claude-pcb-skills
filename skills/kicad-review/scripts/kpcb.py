@@ -32,6 +32,9 @@ Commands:
   kpcb.py FILE viapad [--signal] [--min N]
                                       SMD pads a via drill reaches into, small first
                                       (advice from the board's via protection)
+  kpcb.py FILE assembly               hand assembly: parts per side, BOM lines, pads, body
+                                      sizes, and the parts needing paste + reflow/hot air (a
+                                      pad under the body, pitch <= 0.5 mm), finest pitch first
   kpcb.py FILE where F5.1 BT1.1       a PAD's absolute centre, size, net; two specs
                                       also print the distance between them
   kpcb.py FILE net NET                every pad on a net (absolute xy), copper per
@@ -177,6 +180,7 @@ from kpcb_copper import Copper
 from kpcb_amp import c_ampacity
 from kpcb_zones import c_zones
 from kpcb_viapad import c_viapad
+from kpcb_assembly import c_assembly
 from kpcb_rf import c_rf, c_refslots
 from kpcb_height import c_height
 from kpcb_ic import c_ic, role_pads
@@ -961,7 +965,7 @@ def c_vias(b, a):
 CMDS = {'summary': c_summary, 'check': c_check, 'where': c_where, 'map': c_map,
         'sheet': c_sheet, 'unplaced': c_unplaced, 'ic': c_ic, 'span': c_span,
         'zones': c_zones, 'sync': c_sync, 'review': c_review, 'ampacity': c_ampacity,
-        'viapad': c_viapad, 'net': c_net, 'rf': c_rf, 'height': c_height, 'view': c_view,
+        'viapad': c_viapad, 'assembly': c_assembly, 'net': c_net, 'rf': c_rf, 'height': c_height, 'view': c_view,
         'silk': c_silk, 'movecheck': c_movecheck, 'freebox': c_freebox,
         'tidy': c_tidy, 'vias': c_vias, 'fixlines': c_fixlines, 'renet': c_renet, 'move': c_move, 'ripup': c_ripup,
         'airwires': c_airwires, 'route': c_route, 'place': c_place, 'pairs': c_pairs,

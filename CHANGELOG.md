@@ -3,6 +3,22 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kpcb assembly (new) - "how hard is this board to hand-assemble" had no command: two
+      reference-project sessions (2026-11-12 PCBWay quote, 2026-11-19) wrote 7 inline scripts over
+      `Board.fps` with hand-typed package-name regexes (`QFN|DFN|SON|LGA|...`), and the first said its
+      filter "missed three parts that are just as hard". Done: `kpcb.py FILE assembly` (`kpcb_assembly.py`)
+      reads geometry only: parts to fit per side (not DNP, in the BOM), BOM lines, SMD/THT pads (a plated
+      hole numbered as an SMD pad is a thermal via), counts by Fab body size, and per footprint and side the
+      parts that need paste + reflow or hot air: an SMD pad wholly inside the Fab outline (not for an
+      edge-launch part) or ringed by the other pads (an exposed pad, also without a Fab outline), or pitch
+      <= 0.5 mm; finest pitch first, with pitch, smallest pad, pads under, body. The reference board: 21
+      rows / 33 parts in 0.5 s, every part of the session's hand list (incl. the no-Fab easyeda QFNs) plus
+      J7 and RN1 (0.5 mm pitch). Selftest case `kpcb assembly`, in GOLDEN. 2026-11-19.
+- [x] kicad-review/selftest - knet's `comp`, `net`, `pin`, `find`, `notes`, `sheets` had no case (knet comp
+      18 calls, knet net 23 in the reference project's 30 days). Done: one case each on `selftest.net` /
+      the repeated-sheet project (its root sheet gains a 1 mm text note, so `notes` prints a SMALL one).
+      `unconnected` and kpcb `unplaced`/`review`/`height` stay goldens-only (they need a real board).
+      2026-11-19.
 - [x] kicad-review/kpcb tracks - each shown `jog` row scanned the whole board: `blockers` ran the clearance
       rule and an exact distance for every via, track and pad (1.2M rule look-ups for 171 rows), and `verdict`
       built a fresh Clear (a 0.1 s raster) per jog though jogs share chains (171 jogs, 118 chains). `tracks

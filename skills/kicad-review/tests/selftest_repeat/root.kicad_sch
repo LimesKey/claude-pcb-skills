@@ -6,4 +6,5 @@
  (sheet (at 80 50) (size 20 10) (uuid "bbbbbbbb-0000-4000-8000-000000000000")
   (property "Sheetname" "B" (at 80 49 0)) (property "Sheetfile" "sub.kicad_sch" (at 80 61 0))
   (instances (project "repeat" (path "/11111111-0000-4000-8000-000000000000" (page "3")))))
+ (text "A and B are one sub.kicad_sch" (at 50 30 0) (effects (font (size 1 1))))
  (sheet_instances (path "/" (page "1"))))

@@ -17,7 +17,7 @@ Everything is stdlib Python. There is nothing to `pip install`.
 | tool | reads | answers |
 | --- | --- | --- |
 | `knet.py` | netlist `.net` | connectivity, pins, values, BOM, rails, divider voltages, I2C addresses, power tree, what a reversed battery does |
-| `kpcb.py` | board `.kicad_pcb` | placement, clearance, edges, courtyards, pour coverage, trace current (IPC-2221 and a field solve through the real fills), 50 ohm RF lines, silkscreen, board height, routing quality. Its writers place, route, widen, stitch and clean up tracks on a scratch copy (`-o OUT`, never the input) |
+| `kpcb.py` | board `.kicad_pcb` | placement, clearance, edges, courtyards, pour coverage, trace current (IPC-2221 and a field solve through the real fills), 50 ohm RF lines, silkscreen, board height, hand-assembly difficulty, routing quality. Its writers place, route, widen, stitch and clean up tracks on a scratch copy (`-o OUT`, never the input) |
 | `kdrc.py` | board + schematics | KiCad's own DRC and ERC, folded and suppressible, stale zone fills flagged |
 | `kfp.py` | `.kicad_mod`, `.pretty`, board | footprint lint (KLC courtyard, fab, silk, mask, paste), edits, and why a board footprint no longer matches its library |
 | `ksheet.py` | `.kicad_sch` + netlist | where a part sits on its sheet, drawing lint, PNG of a region |

@@ -113,6 +113,15 @@ CASES = [
     ("ksheet repeated sheet", ['ksheet.py', REPEAT, 'sch', 'R2', '-r', '7'], 0,
      ["sheet sub.kicad_sch (/B/)", "100,96.19         /B/SIG", "SIG (label) at 100,90  /B/SIG"]),
     ("knet repeated sheet", ['knet.py', REPEAT, 'around', 'R2'], 0, ["sheet /B/  at (100,100)mm"]),
+    ("knet sheets",  ['knet.py', REPEAT, 'sheets'],             0, ["/A/  (1)", "/B/  (1)\n  R2     10k"]),
+    ("knet notes",   ['knet.py', REPEAT, 'notes'],              0,
+     ["=== /", "(50,30)  [1 mm  SMALL]  A and B are one sub.kicad_sch", "notes under 1.27 mm text"]),
+    ("knet comp",    ['knet.py', NET, 'comp', 'U1'],            0,
+     ["=== U1  MCU3V3 ===", "supply    : +3V3 (3.3 V)", "4     TX               output       4      /DATA"]),
+    ("knet net",     ['knet.py', NET, 'net', '/VSENSE'],        0, ["=== /VSENSE   [Default]  2 nodes", "R4     pin 1"]),
+    ("knet pin",     ['knet.py', NET, 'pin', 'U1.1'],           0, ["U1.1 [VDD] -> +3V3  (3 nodes)", "FB1    pin 2"]),
+    ("knet find",    ['knet.py', NET, 'find', 'VSENSE|R4'],     0,
+     ["components:\n  R4     5k 1%", "nets:\n  /VSENSE                            2 nodes"]),
     ("kpcb net crossing", ['kpcb.py', CROSS, 'net', 'N'],        0, ["copper  one piece joins all 2 pad(s)"]),
     ("kpcb amp crossing", ['kpcb.py', CROSS, 'ampacity', '--from', 'J1.1', '--to', 'J2.1', '--amps', '0.5'], 0,
      ["R 23.17 mohm", "4 track piece(s)"]),
@@ -293,6 +302,35 @@ def fab_board(d):
                        + fp('SW1', 9, 'smd exclude_from_bom', 'C202388') + fp('TP1', 12, 'exclude_from_bom', lib='t:TP')
                        + fp('FID1', 18, 'smd exclude_from_bom', lib='t:FID')
                        + fp('G1', 15, 'board_only exclude_from_pos_files exclude_from_bom') + ')')
+    return p
+
+def assembly_board(d):
+    """`assembly`: U1 a 0.4 mm-pitch QFN with no Fab outline, its exposed pad found as ringed
+    by the others and its thermal via not a joint; U2 an LGA (every pad inside the Fab body);
+    Q1 (back) and C1 iron parts; J1 through-hole (its pads under the body are soldered from
+    the other side); C2 DNP and FID1 excluded from the BOM are not counted."""
+    p = os.path.join(d, 'asm.kicad_pcb')
+    pad = lambda n, x, y, w, h, k='smd', lay='F.Cu': (                                 # noqa: E731
+        f' (pad "{n}" {k} rect (at {x} {y}) (size {w} {h})' + (' (drill .3)' if k != 'smd' else '')
+        + f' (layers "{lay}"))')
+    fab = lambda x0, y0, x1, y1, s='F': f' (fp_rect (start {x0} {y0}) (end {x1} {y1}) (layer "{s}.Fab"))'   # noqa: E731
+    fp = lambda ref, x, y, body, attr='smd', s='F': (                                 # noqa: E731
+        f' (footprint "x:{ref}" (layer "{s}.Cu") (at {x} {y}) (property "Reference" "{ref}") (attr {attr}){body})')
+    qfn = ''.join(pad(i + 1 + 4 * (sx > 0), sx, -.6 + .4 * i, .6, .2) for sx in (-1, 1) for i in range(4))
+    qfn += pad(9, 0, 0, 1, 1) + pad(9, 0, 0, .5, .5, 'thru_hole', '*.Cu')
+    lga = fab(-.6, -.6, .6, .6) + ''.join(pad(i + 1, x, y, .3, .3) for i, (x, y) in
+                                          enumerate(((-.3, -.3), (.3, -.3), (.3, .3), (-.3, .3))))
+    sot = fab(-.65, -1.45, .65, 1.45, 'B') + ''.join(pad(n, x, y, .6, .8, lay='B.Cu') for n, x, y in
+                                                     ((1, -.95, 1.4), (2, .95, 1.4), (3, 0, -1.4)))
+    chip = fab(-.5, -.25, .5, .25) + pad(1, -.48, 0, .56, .62) + pad(2, .48, 0, .56, .62)
+    tht = fab(-1.27, -1.27, 3.81, 1.27) + pad(1, 0, 0, 1.7, 1.7, 'thru_hole', '*.Cu') + pad(2, 2.54, 0, 1.7, 1.7, 'thru_hole', '*.Cu')
+    open(p, 'w').write('(kicad_pcb (version 20240108) (generator "pcbnew")'
+                       ' (layers (0 "F.Cu" signal) (31 "B.Cu" signal) (25 "Edge.Cuts" user))'
+                       ' (gr_rect (start 0 0) (end 30 20) (layer "Edge.Cuts"))'
+                       + fp('U1', 5, 5, qfn) + fp('U2', 10, 5, lga) + fp('Q1', 15, 5, sot, s='B')
+                       + fp('C1', 20, 5, chip) + fp('C2', 23, 5, chip, 'smd dnp')
+                       + fp('FID1', 26, 5, pad(1, 0, 0, 1, 1), 'smd exclude_from_bom')
+                       + fp('J1', 5, 15, tht, 'through_hole') + ')')
     return p
 
 def crtyd_board(d):
@@ -1647,7 +1685,7 @@ def kdoc_docs(d):
 
 # any board: no ref, pad or net name (GND aside). A board's own go in EXTRA.json.
 GOLDEN = [['kpcb.py', '{pcb}', c] for c in ('summary', 'check', 'span', 'zones', 'rf', 'viapad', 'ic',
-                                            'height', 'unplaced', 'sheet', 'map', 'review')] \
+                                            'height', 'unplaced', 'sheet', 'map', 'review', 'assembly')] \
     + [['kpcb.py', '{pcb}', 'sync', '{net}'], ['kpcb.py', '{pcb}', 'check', '--json']] \
     + [['knet.py', '{net}', c] for c in ('summary', 'check', 'rails', 'revpol', 'unconnected', 'bom',
                                          'powertree', 'i2c')] \
@@ -1861,6 +1899,13 @@ def main(pick=(), listing=False, keep=False):
                   ["0 error, 2 warn, 1 info", "C2 is DNP and excluded from the BOM: the BOM loses it",
                    "SW1 has LCSC C202388 but is excluded from the BOM",
                    "1 part(s) whose BOM/pos flags differ from their library footprint: TP1 (-pos_files)"]))
+    CASES.append(("kpcb assembly", ['kpcb.py', assembly_board(tmp.name), 'assembly'], 0,
+                  ["5 parts to fit, 4 front / 1 back, 5 BOM lines; 18 SMD pads, 2 through-hole",
+                   "not counted: DNP 1 (C2); excluded from the BOM 1 (FID1)",
+                   "0402-size 2 | 0603-size 0 | 0805-size 0 | 1206-size 1 | larger 1 | no Fab outline 1",
+                   "through-hole (1): J1", "(2 parts)", "the other 3:",
+                   "U1                       F     0.40    0.20    1/9         -  U1",
+                   "U2                       F     0.60    0.30    4/4   1.2x1.2  U2"]))
     CASES.append(("kpcb check CRTYDPAD HOLECLR", ['kpcb.py', crtyd_board(tmp.name), 'check', '--only', 'CRTYDPAD,HOLECLR'], 2,
                   ["1 error, 1 warn", "J1: 2 of 2 pad(s) outside its own courtyard",
                    "R2 is inside H1's 3.1 mm screw keepout: its pad 2.30 mm from the centre"]))
