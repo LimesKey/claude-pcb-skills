@@ -248,12 +248,14 @@ def mini_project(d):
     fill = lambda ly, *boxes: (f'(zone (net "GND") (layer "{ly}") (polygon {sq(0, 0, 20, 20)})'
                                + ''.join(f' (filled_polygon (layer "{ly}") {sq(*bx)})' for bx in boxes) + ')')
     # B.Cu GND leaves x 9.5..14.5 bare (a removed island); F.Cu is solid GND with a
-    # SIG track down x=12, so the rescue via must sit clear of x=12 (>= 0.3+0.15+0.1)
+    # SIG track down x=12, so the rescue via must sit clear of x=12 (>= 0.3+0.15+0.1); a 1 mm2
+    # +5V pour at 2,2 is a local pour `zones` folds (far from the void, so --voids is unmoved)
     open(os.path.join(d, 'voids.kicad_pcb'), 'w').write(
         '(kicad_pcb (version 20240108) (generator "pcbnew")'
         ' (layers (0 "F.Cu" signal) (2 "B.Cu" signal) (25 "Edge.Cuts" user))'
         ' (gr_rect (start 0 0) (end 20 20) (layer "Edge.Cuts"))'
         ' (segment (start 12 1) (end 12 19) (width 0.2) (layer "F.Cu") (net "SIG"))'
+        f' (zone (net "+5V") (layer "F.Cu") (polygon {sq(2, 2, 3, 3)}) (filled_polygon (layer "F.Cu") {sq(2, 2, 3, 3)}))'
         + fill('F.Cu', (0.5, 0.5, 19.5, 19.5)) + fill('B.Cu', (0.5, 0.5, 9.5, 19.5), (14.5, 0.5, 19.5, 19.5)) + ')')
     return os.path.join(d, 't.net')
 
@@ -337,19 +339,28 @@ def crtyd_board(d):
     """CRTYDPAD: J1's courtyard wraps its housing (y -3..-1) but not its pads (y 0, 2).
     HOLECLR: H1 (3.2 mm hole, keepout 3.1 at --hole 1.5) - R1's courtyard corner reaches
     2.3 mm from the centre on the diagonal but its pads stay 3.25 mm out (clear); R2's pad
-    sits 2.3 mm out (inside)."""
+    sits 2.3 mm out (inside). ESD: J2.1 (S) is 15 mm from its clamp D1 and U1.1 sits 3 mm
+    from it (reached first); J3.1 (T) has D2 2 mm away (fine). Pads: (num, x, y[, net])."""
     p = os.path.join(d, 'crtyd.kicad_pcb')
-    def fp(ref, x, y, crt, pads, name='', size=.4, drill=''):
-        return (f' (footprint "{name or "x:" + ref}" (layer "F.Cu") (at {x} {y}) (property "Reference" "{ref}") (attr smd)'
+    def fp(ref, x, y, crt, pads, name='', size=.4, drill='', value=''):
+        pads = [(q[0], q[1], q[2], f' (net "{q[3]}")' if len(q) > 3 else '') for q in pads]
+        return (f' (footprint "{name or "x:" + ref}" (layer "F.Cu") (at {x} {y}) (property "Reference" "{ref}")'
+                + (f' (property "Value" "{value}")' if value else '') + ' (attr smd)'
                 f' (fp_rect (start {crt[0]} {crt[1]}) (end {crt[2]} {crt[3]}) (layer "F.CrtYd"))'
                 + ''.join(f' (pad "{n}" {"thru_hole" if drill else "smd"} circle (at {px} {py}) (size {size} {size})'
-                          f'{drill} (layers "F.Cu"))' for n, px, py in pads) + ')')
+                          f'{drill} (layers "F.Cu"){net})' for n, px, py, net in pads) + ')')
+    box = (-.5, -.5, .5, 1.5)
     open(p, 'w').write('(kicad_pcb (version 20240108) (generator "pcbnew")'
                        ' (layers (0 "F.Cu" signal) (25 "Edge.Cuts" user)) (gr_rect (start 0 0) (end 40 30) (layer "Edge.Cuts"))'
                        + fp('J1', 30, 15, (-1, -3, 1, -1), (('1', 0, 0), ('2', 0, 2)))
                        + fp('H1', 10, 10, (-1.7, -1.7, 1.7, 1.7), (('1', 0, 0),), 'MountingHole_3.2mm', 3.2, ' (drill 3.2)')
                        + fp('R1', 12.1, 12.1, (-.5, -.5, 1, 1), (('1', .4, .4), ('2', .7, .7)))
-                       + fp('R2', 10, 7.5, (-.5, -.5, .5, .5), (('1', 0, 0),)) + ')')
+                       + fp('R2', 10, 7.5, (-.5, -.5, .5, .5), (('1', 0, 0),))
+                       + fp('J2', 38, 25, box, (('1', 0, 0, 'S'), ('2', 0, 1, 'GND')))
+                       + fp('D1', 23, 25, box, (('1', 0, 0, 'S'), ('2', 0, 1, 'GND')), value='ESD5Z5.0')
+                       + fp('U1', 35, 25, box, (('1', 0, 0, 'S'), ('2', 0, 1, 'VCC')))
+                       + fp('J3', 38, 20, box, (('1', 0, 0, 'T'), ('2', 0, 1, 'GND')))
+                       + fp('D2', 36, 20, box, (('1', 0, 0, 'T'), ('2', 0, 1, 'GND')), value='PESD5V0S1BL') + ')')
     return p
 
 def rip_board(d, sealed=False):
@@ -1909,6 +1920,9 @@ def main(pick=(), listing=False, keep=False):
     CASES.append(("kpcb check CRTYDPAD HOLECLR", ['kpcb.py', crtyd_board(tmp.name), 'check', '--only', 'CRTYDPAD,HOLECLR'], 2,
                   ["1 error, 1 warn", "J1: 2 of 2 pad(s) outside its own courtyard",
                    "R2 is inside H1's 3.1 mm screw keepout: its pad 2.30 mm from the centre"]))
+    CASES.append(("kpcb check ESD", ['kpcb.py', crtyd_board(tmp.name), 'check', '--only', 'ESD'], 0,
+                  ["0 error, 1 warn", "J2.1 (S) is 15.0 mm from D1 (ESD5Z5.0), the nearest clamp on that net (want <= 10); "
+                   "U1.1 is 3.0 mm from the pin, so a strike reaches it first"]))
     CASES.append(("kpcb freebox", ['kpcb.py', freebox_board(tmp.name), 'freebox', 'f', '6', '4'], 0,
                   ["1 region(s)", "centre   24.12,10.38    margin 1.75 mm  (region   52.0 mm2"]))
     mv = move_board(tmp.name)
@@ -1935,6 +1949,9 @@ def main(pick=(), listing=False, keep=False):
     CASES.append(("kpcb route result", ['kpcb.py', w3, 'airwires', 'A'], 0, ["every net is one piece"]))
     CASES.append(("kpcb renet", ['kpcb.py', w3, 'renet', '-o', w4], 0, ["1 track(s) + 0 via(s) get the one net they touch"]))
     CASES.append(("kpcb place", ['kpcb.py', w4, 'place', 'C1', '--near', 'R1', '-r', '4'], 0, ["  1 ", "CLEAR"]))
+    CASES.append(("kpcb place now", ['kpcb.py', w4, 'place', 'R1', '-r', '3', '--max', '2'], 0,
+                  ["  now    5.00    10.00    0   F    4.00     0.00  where it sits",
+                   "no clear spot has a shorter ratsnest than where R1 sits: leave it"]))
     CASES.append(("kpcb ripup", ['kpcb.py', w3, 'ripup', 'A'], 1, ["ripup: ", "on 1 net(s)", "add -o OUT"]))
     CASES.append(("kpcb move drags", ['kpcb.py', w3, 'move', 'R1', '5', '12', '-o', os.path.join(tmp.name, 'w5.kicad_pcb')], 0,
                   ["move R1 5.000,10.000 rot 0 -> 5.000,12.000", "dragged 3 track end(s) that sat on its pads"]))
@@ -2392,6 +2409,9 @@ def main(pick=(), listing=False, keep=False):
                    "lacks top-level sheet(s) Other"]))
     CASES.append(("kpcb zones --voids", ['kpcb.py', os.path.join(tmp.name, 'voids.kicad_pcb'), 'zones', '--voids'], 0,
                   ["B.Cu    void core", "rescue via at", "GND on F.Cu there, nothing foreign"]))
+    CASES.append(("kpcb zones planes", ['kpcb.py', os.path.join(tmp.name, 'voids.kicad_pcb'), 'zones'], 0,
+                  ["F.Cu     + 1 local pour(s) under 5%: +5V 0%", "F.Cu     GND         90%      1  18 mm, 1 net(s)       SIG 18",
+                   "B.Cu     GND         66%      2  0 mm, 0 net(s)"]))
     # ---- 2026-10-27 backlog pass
     CASES.append(("kpcb smooth --overlaps keeps a via's centred end", ['kpcb.py', ovia_board(tmp.name), 'smooth', '--overlaps'],
                   0, ["overlaps: 0 deleted, 0 cut back"]))

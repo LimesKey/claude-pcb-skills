@@ -3,7 +3,7 @@ import os, re, sys, json, math, glob
 from collections import defaultdict
 from functools import cached_property
 from kcommon import (load_sexp, kids, kid, val, has, prefix, parse_value, unesc_disp,
-                     rail_voltage, rules_warning)
+                     rail_voltage, rules_warning, GND_RE)
 
 # ---------------- part classification ----------------
 # Small and deliberately greppable: these are the knobs to turn when a check
@@ -19,6 +19,9 @@ HOT_VAL  = re.compile(r'\b(BQ25\d|LM6146|TPS2594|TPS6\d|TPS7A|AP63\d|MP\d{4}|TPS
 SENS_FP  = re.compile(r'Crystal|Oscillator|BatteryHolder|BAT-SMD', re.I)
 SENS_VAL = re.compile(r'\b(NEO-M9|NEO-M8|NEO-F10|32\.768|TCXO)', re.I)
 THERM_PFX = ('TH', 'NTC', 'RT')   # thermistors: THERMAL checks them as a measurement bias
+# TVS / ESD clamps by value or MPN (ESD5Z, TPD4E05, USBLC6, PESD5V0, SMF5.0A); is_esd also wants a GND pad
+ESD_VAL  = re.compile(r'ESD|TVS|\bTPD\d|PESD|USBLC|SRV05|RCLAMP|PRTR\d'
+                      r'|\b(?:SMF|SMAJ|SMBJ|SMCJ|SM6T|SM8S|P6KE|1\.5KE|P4KE)\d', re.I)
 CONN_FP  = re.compile(r'^Connector|PinHeader|PinSocket|JST|Molex|USB|TestPoint', re.I)
 EDGEMNT  = re.compile(r'EdgeMount|Coaxial|SMA|U\.?FL|USB_C_Receptacle|Horizontal', re.I)
 HOLE_FP  = re.compile(r'MountingHole|Mounting_Hole', re.I)
@@ -1094,6 +1097,12 @@ class Board:
 
     def is_conn(self, f):
         return prefix(f.ref) in ('J', 'P', 'CN', 'X') or bool(CONN_FP.match(f.fp.split(':')[0]))
+
+    @staticmethod
+    def is_esd(f):
+        """a TVS / ESD clamp: named so and with a pad on GND (an ESD logo has no pads)"""
+        return bool(ESD_VAL.search(f"{f.value} {f.mpn}")) and \
+            any(p['net'] and GND_RE.match(p['net'].split('/')[-1]) for p in f.pads)
 
     def is_rf(self, f):
         if RF_FP.search(f.fp) or RF_VAL.search(f.value):

@@ -125,6 +125,12 @@ per pad the distance to the nearest same-net copper on the board (rails x0.3, +1
 for an SMD pad on the other side), `--near REF`'s pin on that net (+2 mm off its
 side), + 0.2 x the distance to the anchor. A part whose every net is a rail (a
 decoupling cap) needs `--near`. The best spots are re-checked with movecheck's World.
+For a part already on the board a `now` row scores where it sits the same way, and the
+last line says how many clear spots have a shorter ratsnest (the verdict ignores the
+anchor term, which pulls every spot toward the middle of a long net). Its own tracks count
+as copper, so a routed part's `now` reads near 0: the comparison is for a placement pass,
+before routing. The first CLEAR spot always prints, even after `--max` blocked rows: `-o`
+writes it.
 
 **`ripup --drc`** takes the item uuids kicad-cli puts in its JSON report (`kdrc.py
 --report`), for `--types` (default shorts, clearance, hole clearance, hole-to-hole,

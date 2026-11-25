@@ -400,7 +400,25 @@ def c_place(b, a):
                             best = d
         return best
 
-    sides = {'f': [False], 'b': [True], 'both': [False, True]}.get((a.side or 'both').lower(), [False, True])
+    def score_at(cent, x, y, back):
+        """(score, ratsnest) of the pads `cent` (placed at 0,0) moved to x,y on that side"""
+        score, rat = 0.0, 0.0
+        for p, px, py, L, _q in cent:
+            n = p['net']
+            if n not in nets:
+                continue
+            X, Y = px + x, py + y
+            best = nearest(n, X, Y, back, bool(p['drill']))
+            if best is None:
+                continue
+            score += (0.3 if _is_rail(b, n, a.fanout) else 1.0) * best
+            rat += best
+            near = [math.hypot(X - qx, Y - qy) for qx, qy, qn in pull if a.near and qn == n]
+            if near:                     # --near: hug that part's pin on this net, its side
+                score += min(near) + (2.0 if nside is not None and back != nside and not p['drill'] else 0)
+        return score + 0.2 * math.hypot(x - ax, y - ay), rat
+
+    sides ={'f': [False], 'b': [True], 'both': [False, True]}.get((a.side or 'both').lower(), [False, True])
     rots = [float(r) for r in (a.rots or '0,90,180,270').split(',')]
     res, cstep = 0.1, 0.25                                  # raster, candidate pitch
     maps = {s: SideMap(b, s, {f.ref}, res, a.edge, nets) for s in sides}
@@ -421,22 +439,12 @@ def c_place(b, a):
                     if not all(M.free((rb[0] + x, rb[1] + y, rb[2] + x, rb[3] + y)) for rb in rbs) or \
                             not all(M.free((p[0] + x, p[1] + y, p[2] + x, p[3] + y), M.C.get(n, M.C[''])) for n, p in pbs):
                         continue
-                    score, rat = 0.0, 0.0
-                    for p, px, py, L, _q in cent:
-                        n = p['net']
-                        if n not in nets:
-                            continue
-                        X, Y = px + x, py + y
-                        best = nearest(n, X, Y, back, bool(p['drill']))
-                        if best is None:
-                            continue
-                        score += (0.3 if _is_rail(b, n, a.fanout) else 1.0) * best
-                        rat += best
-                        near = [math.hypot(X - qx, Y - qy) for qx, qy, qn in pull if a.near and qn == n]
-                        if near:                     # --near: hug that part's pin on this net, its side
-                            score += min(near) + (2.0 if nside is not None and back != nside and not p['drill'] else 0)
-                    score += 0.2 * math.hypot(x - ax, y - ay)
-                    cands.append((score, x, y, rot, back, rat))
+                    sc, rat = score_at(cent, x, y, back)
+                    cands.append((sc, x, y, rot, back, rat))
+    # a part already on the board: score where it sits the same way, so each spot reads against it
+    now = None
+    if f.placed:
+        now = score_at(as_placed(f, 0.0, 0.0, f.rot, False, cu)[2], f.x, f.y, f.back)
     if not cands:
         print(f"{f.ref}: no spot within {R:g} mm of {ax:.2f},{ay:.2f} on {'/'.join('B' if s else 'F' for s in sides)} "
               f"fits its courtyard - widen -r or --side both" + ('' if a.shove else ', or --shove'))
@@ -449,6 +457,9 @@ def c_place(b, a):
         print(f"place {f.ref} ({f.value}, {f.fp.split(':')[-1]})  near {ax:.2f},{ay:.2f}"
               f"{' (' + a.near + ')' if a.near else ''}   {len(cands)} fitting spot(s) within {R:g} mm, best first")
         print(f"  {'#':>2} {'x':>8} {'y':>8} {'rot':>4} side  score  ratsnest  copper")
+        if now:
+            print(f"  {'now':>3}{f.x:8.2f} {f.y:8.2f} {f.rot:4g}   {'B' if f.back else 'F'}  {now[0]:6.2f}  {now[1]:7.2f}  "
+                  f"where it sits (its own tracks count as copper: a routed part scores low here)")
     boxed = 0
     for c in cands:
         score, x, y, rot, back, rat = c
@@ -459,20 +470,25 @@ def c_place(b, a):
         items, rings, _c = as_placed(f, x, y, rot, back != f.back, cu)
         hits = w.hits(items, rings, back)
         esc = [] if hits else _escapes(b, f, x, y, rot, back)     # a pad no track or via can leave
-        if not hits and not esc:
+        clear = not hits and not esc
+        if clear:
             ok.append(c)
         boxed += bool(esc)
-        if shown < a.max or (not ok and shown < 60):
-            msg = 'CLEAR' if not hits and not esc else \
+        if shown < a.max or (len(ok) == clear and shown < 60):     # always show the first clear one: -o writes it
+            msg = 'CLEAR' if clear else \
                 (f"boxed in: {', '.join(esc[:2])}" + (f" +{len(esc) - 2}" if len(esc) > 2 else '') if esc
                  else sorted(hits.values())[0][:70])
-            print(f"  {len(ok) if not hits and not esc else '-':>2} {x:8.2f} {y:8.2f} {rot:4g}   {'B' if back else 'F'}  {score:6.2f}  {rat:7.2f}  {msg}")
+            print(f"  {len(ok) if clear else '-':>2} {x:8.2f} {y:8.2f} {rot:4g}   {'B' if back else 'F'}  {score:6.2f}  {rat:7.2f}  {msg}")
             shown += 1
         if len(ok) >= max(a.pick, 1) and shown >= a.max:
             break
     if boxed:
         print(f"  ({boxed} copper-clear spot(s) skipped: a pad there reaches neither its net's copper nor a "
               f"legal via spot within 1.5 mm - unroutable)")
+    if now and ok:
+        better = sum(c[5] < now[1] - 0.05 for c in ok)       # ratsnest: the score's pull-centre term favours the middle
+        print(f"  {better} clear spot(s) found have a shorter ratsnest than where {f.ref} sits" if better else
+              f"  no clear spot has a shorter ratsnest than where {f.ref} sits: leave it")
     plan = _shove(b, a, f, sides, rots, R, ax, ay, nets, pull, cu) if a.shove and not ok else []
     if not ok and not plan:
         print("  none of these is copper-clear with every pad able to escape; widen -r, try --side both, --shove, "

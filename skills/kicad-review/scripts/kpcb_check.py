@@ -52,6 +52,7 @@ RULES = {
     'RFNOISE':  'RF part / antenna net within --rf of a switching node',
     'THERMAL':  'heat source within --therm of a heat-sensitive part',
     'BYPASS':   'supply pin further than --bypass from its nearest bypass cap',
+    'ESD':      'connector pin further than --esd from the TVS/ESD part on its net, or an IC nearer the pin than it',
     'NOCRTYD':  'footprint has no courtyard - overlap was checked on pads+fab instead',
     'CRTYDPAD': "pads outside their own footprint's courtyard - OVERLAP and KiCad's courtyard DRC miss them",
     'NETSPAN':  'a fully placed non-rail net whose pads are more than --span apart',
@@ -308,6 +309,38 @@ def gen_findings(b, a):
                 add('WARN', 'BYPASS', f"{f.ref}.{p['num']} ({p['fn']}, {unesc_disp(p['net'])}) "
                                       f"nearest placed bypass cap is {best.ref} at {d:.1f} mm "
                                       f"(want <= {a.bypass:g})", [f.ref, best.ref])
+
+    # --- ESD: each connector pin to the nearest clamp on its net (so a shared bus with a clamp
+    # at every connector reads per connector), worst net per (connector, clamp) pair. A clamp's
+    # own supply pin (TPD8S300 VPWR) is not a protected line. Straight line, like BYPASS.
+    on, pads = defaultdict(list), defaultdict(list)
+    for f in P:
+        if f.dnp:
+            continue
+        for p in f.pads:
+            if p['net'] and not p['net'].startswith('unconnected-'):
+                pads[p['net']].append((f, p))
+                if b.is_esd(f) and not GND_RE.match(p['net'].split('/')[-1]) and not SUP_PIN.match(p['fn'] or ''):
+                    on[p['net']].append((f, p))
+    dist = lambda p, q: math.hypot(p['x'] - q['x'], p['y'] - q['y'])      # noqa: E731
+    worst = {}
+    for g in P:
+        if g.dnp or not b.is_conn(g) or prefix(g.ref) == 'TP' or b.is_esd(g):
+            continue
+        for q in g.pads:
+            if q['net'] in on:
+                f, p = min(on[q['net']], key=lambda c: dist(c[1], q))
+                ics = sorted((dist(r, q), h.ref, r['num']) for h, r in pads[q['net']]
+                             if prefix(h.ref) == 'U' and not b.is_esd(h) and dist(r, q) < dist(p, q) - 1.0)
+                k, rank = (g.ref, f.ref), (bool(ics), dist(p, q))      # an IC hit first, then the farthest
+                if k not in worst or rank > worst[k][0]:
+                    worst[k] = (rank, q, f, ics)
+    for (gr, fr), ((_, d), q, f, ics) in sorted(worst.items(), key=lambda kv: (-kv[1][0][1], kv[0])):
+        if d > a.esd or ics:
+            hit = f"; {ics[0][1]}.{ics[0][2]} is {ics[0][0]:.1f} mm from the pin, so a strike reaches it first" if ics else ''
+            add('WARN', 'ESD', f"{gr}.{q['num']} ({unesc_disp(q['net'])}) is {d:.1f} mm from {fr} "
+                               f"({trunc(f.value, 18)}), the nearest clamp on that net (want <= {a.esd:g}){hit}",
+                [gr, fr] + ([ics[0][1]] if ics else []))
 
     # --- DEADCU: routed copper (tracks, vias, pour) hanging off one point and serving no pad --
     if (not only or 'DEADCU' in only) and 'DEADCU' not in skip and b.tracks:

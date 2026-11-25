@@ -82,7 +82,8 @@ scrambled. The plot only tells you which sheet a symbol lives on.
 | does the board pass real DRC + ERC | `kdrc.py FILE.kicad_pcb` - KiCad's own checks, every root, folded like `check`; flags a STALE saved zone fill (what gerbers export) |
 | which PWR_FLAGs are needed / redundant | `kdrc.py FILE.kicad_pcb flags` - each flag's net, and whether ERC fails without it |
 | does the SMA/USB-C sit on the edge its footprint expects / how far is a side-entry housing set back | `kpcb.py FILE check --only EDGEREF` |
-| is the ground pour filled / covering | `kpcb.py FILE zones` - fill coverage per copper layer |
+| is each TVS/ESD clamp at the connector it protects | `kpcb.py FILE check --only ESD` - connector pin to the nearest clamp on its net, and any IC a strike reaches first |
+| is the ground pour filled / covering / what cuts the plane | `kpcb.py FILE zones` - fill coverage per copper layer (local pours folded), then each plane layer's other-net tracks, longest first |
 | can a net carry its current / is the trace too thin | `kpcb.py FILE ampacity NET --amps X` - IPC-2221 vs the routed copper + vias |
 | does the power path between two pads carry X A | `kpcb.py FILE ampacity --from Q16.1 --to R41.1 --amps 6` - current split by conductance, pours as conductors, hottest tracks/vias; `--fills` adds R through the REAL saved fills (pour necks included) and names the neck |
 | is the net's copper one piece | `kpcb.py FILE net NET` - ends with `copper one piece` or the pads cut off |
@@ -93,7 +94,7 @@ scrambled. The plot only tells you which sheet a symbol lives on.
 | can I nudge X here / where along this line is clear / can this via move | `kpcb.py FILE movecheck REF X Y [ROT] [--no-drag]`, `REF --scan x=X y=A..B`, `via X,Y NX,NY` - new hits only, read-only (`--no-drag`: KiCad's Move, its tracks and in-pad vias stay) |
 | what is left to route | `kpcb.py FILE airwires [NET]` - per net, each missing link between copper pieces, nearest copper of each, gap |
 | where a copper layer still has room for routes | `kpcb.py FILE map --layers In2.Cu` - track/pad/via density, pour-only and free cells |
-| where does this unplaced part fit | `kpcb.py FILE place REF [--near IC]` - both sides, 4 rotations, ranked by ratsnest, copper-checked, every pad able to escape (a via spot or its net's copper within 1.5 mm); `--shove` nudges one small part aside when nothing fits; `-o OUT` writes it |
+| where does this unplaced part fit / would a placed one sit better | `kpcb.py FILE place REF [--near IC]` - a placed part's `now` row first; both sides, 4 rotations, ranked by ratsnest, copper-checked, every pad able to escape (a via spot or its net's copper within 1.5 mm); `--shove` nudges one small part aside when nothing fits; `-o OUT` writes it |
 | route a net / everything left | `kpcb.py FILE route NET... \| --pending -o OUT` - grid A* through clearance-inflated copper, vias, all layers; necks down out of fine-pitch pads; rips up its own routes that box a pin in (`--rip-board N`: small nets already on the board too); a FAILED link names what boxes it in; `--pair` runs a diff-pair leg alongside its routed mate; `--avoid X0,Y0,X1,Y1[;..]` keeps this run out of boxes (an antenna whose keepout allows tracks) |
 | diff pair skew / coupling / gap | `kpcb.py FILE pairs [NET]` - per pair leg lengths, skew, coupled length, edge gap vs the netclass |
 | place and route on a scratch copy, prove each step | the loop in [recipes](references/recipes.md) "Place the rest": `kdrc.py COPY drc --refill-save --baseline r0.json` reads `0 new` when a step is clean |

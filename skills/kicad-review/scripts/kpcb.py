@@ -142,6 +142,7 @@ Thresholds (mm) - defaults are conservative; override per board in kpcb.json:
   --rf 8.0        RF part / antenna net to switching node
   --therm 8.0     heat source to heat-sensitive part
   --bypass 3.0    supply pin to its nearest bypass cap
+  --esd 10.0      connector pin to the nearest TVS/ESD clamp on its net
   --clear 0.0     extra margin added to every courtyard-vs-courtyard test
   --gap 0.25      courtyard-to-courtyard gap inside an `ic` suggestion
   --fb 4.0        `ic`: feedback part to switching node
@@ -981,6 +982,7 @@ LIMITS = (('edge', 0.5, 'courtyard-to-board-edge minimum, mm'),
           ('rf', 8.0, 'RF part to switching node, mm'),
           ('therm', 8.0, 'heat source to heat-sensitive part, mm'),
           ('bypass', 3.0, 'supply pin to its bypass cap, mm'),
+          ('esd', 10.0, 'connector pin to the TVS/ESD clamp on its net, mm'),
           ('clear', 0.0, 'extra margin on every courtyard test, mm'),
           ('gap', 0.25, 'for `ic`: courtyard gap in a suggestion, mm'),
           ('fb', 4.0, 'for `ic`: feedback part to switching node, mm'),
@@ -1156,7 +1158,7 @@ def main():
     ap.add_argument('--twins', action='store_true', help='for `smooth`: two same-net runs side by side into one pad '
                     're-laid as a daisy chain through the nearer start (not in --all)')
     ap.add_argument('--nudge', action='store_true', help='for `smooth --jogs`: also drag one blocking signal via <= 0.3 mm')
-    ap.add_argument('--all', action='store_true', help='for `smooth -o`: micro, joints, chains, overlaps (+ merge), corners, square, pads, repeated until a round '
+    ap.add_argument('--all', action='store_true', help='for `zones`: a row for every pour (local pours under 5%% are folded); for `smooth -o`: micro, joints, chains, overlaps (+ merge), corners, square, pads, repeated until a round '
                                                       'changes nothing; for `tracks`: include RF/USB/diff-pair nets; '
                                                       'for `refdes`: every visible designator, not only flagged ones; '
                                                       'for `congest`: every net\'s pad MST, no tracks (the placement '

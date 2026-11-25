@@ -1,7 +1,7 @@
 """kpcb.py `zones`: per-layer pour coverage, or coverage under one footprint."""
 import os, re, json, glob, math
 from collections import defaultdict, Counter
-from kcommon import GND_RE, rail_voltage, load_sexp, kids, kid
+from kcommon import GND_RE, rail_voltage, load_sexp, kids, kid, trunc, unesc_disp
 from kpcb_board import (_sample_grid, bbox, ctr, hit, inside, overlap_area, point_in_poly,
                         poly_area, PolyIndex, pt_seg_dist, xf)
 from kpcb_copper import _local, _reach
@@ -481,6 +481,19 @@ def c_zones(b, a):
             largest = max((f['area'] for f in fs), default=0.0)
             rows.append((ly, net, area, len(fs), largest, fb))
     unfilled = sorted(declared - filled)
+    # plane layers: one net's fill over 30% of the board (as --voids), and the other nets'
+    # track length on that layer - what cuts the plane, longest first
+    planes = {}
+    for ly in b.copper:
+        ar = {n: sum(f['area'] for f in fs) for n, fs in (by_layer.get(ly) or {}).items()}
+        pn = max(ar, key=ar.get, default=None)
+        if pn and board_area and ar[pn] > .3 * board_area:
+            cut = defaultdict(float)
+            for t in b.tracks:
+                if t['layer'] == ly and t['net'] != pn:
+                    cut[t['net'] or '(no net)'] += t['len']
+            planes[ly] = (pn, 100 * ar[pn] / board_area, len(by_layer[ly][pn]),
+                          sorted(cut.items(), key=lambda kv: (-kv[1], kv[0])))
 
     if a.json:
         print(json.dumps({'board_area_mm2': round(board_area, 1), 'outline': o,
@@ -491,7 +504,11 @@ def c_zones(b, a):
                                       'largest_island_pct': round(100 * lg / ar, 1) if ar else 0,
                                       'fill_bbox': [round(v, 2) for v in fb] if fb else None}
                                      for ly, net, ar, isl, lg, fb in rows if net != '-'],
-                          'declared_unfilled': [{'net': n, 'layer': l} for n, l in unfilled]},
+                          'declared_unfilled': [{'net': n, 'layer': l} for n, l in unfilled],
+                          'planes': [{'layer': ly, 'net': pn, 'coverage_pct': round(cov, 1), 'pieces': k,
+                                      'other_track_mm': round(sum(v for _, v in cut), 1), 'other_nets': len(cut),
+                                      'longest': [[n, round(v, 1)] for n, v in cut[:10]]}
+                                     for ly, (pn, cov, k, cut) in planes.items()]},
                          indent=1))
         return 0
 
@@ -499,17 +516,38 @@ def c_zones(b, a):
     if o:
         print(f"board {board_area:.0f} mm2 (outline ring)   bbox "
               f"x {o[0]:.1f}..{o[2]:.1f}  y {o[1]:.1f}..{o[3]:.1f}")
-    print(f"\n{'layer':<8} {'net':<8} {'cover':>6} {'isl':>4} {'top1':>5}  "
+    # a pour under 5% that is not a ground is local copper (a power island, a heatsink):
+    # one line per layer unless --all, so the planes are not buried under 50 rows of 0%
+    cov_of = lambda ar: 100 * ar / board_area if board_area else 0        # noqa: E731
+    local = lambda r: r[1] != '-' and cov_of(r[2]) < 5 and not GND_RE.match(r[1].split('/')[-1])   # noqa: E731
+    keep = [r for r in rows if getattr(a, 'all', False) or not local(r)]
+    nw = min(24, max([8] + [len(r[1]) for r in keep]))
+    print(f"\n{'layer':<8} {'net':<{nw}} {'cover':>6} {'isl':>4} {'top1':>5}  "
           f"uncovered margins (mm, of fill bbox)")
-    for ly, net, area, isl, largest, fb in rows:
-        if net == '-':
-            print(f"{ly:<8} {'-':<8} {'0%':>6} {'0':>4} {'-':>5}  (no fill on this layer)")
-            continue
-        cov = 100 * area / board_area if board_area else 0
-        top1 = 100 * largest / area if area else 0
-        marg = (f"top {fb[1]-o[1]:.1f}  bot {o[3]-fb[3]:.1f}  "
-                f"L {fb[0]-o[0]:.1f}  R {o[2]-fb[2]:.1f}") if (fb and o) else ''
-        print(f"{ly:<8} {net:<8} {cov:5.0f}% {isl:>4} {top1:4.0f}%  {marg}")
+    for ly in b.copper:
+        for _ly, net, area, isl, largest, fb in (r for r in keep if r[0] == ly):
+            if net == '-':
+                print(f"{ly:<8} {'-':<{nw}} {'0%':>6} {'0':>4} {'-':>5}  (no fill on this layer)")
+                continue
+            top1 = 100 * largest / area if area else 0
+            marg = (f"top {fb[1]-o[1]:.1f}  bot {o[3]-fb[3]:.1f}  "
+                    f"L {fb[0]-o[0]:.1f}  R {o[2]-fb[2]:.1f}") if (fb and o) else ''
+            print(f"{ly:<8} {trunc(net, nw):<{nw}} {cov_of(area):5.0f}% {isl:>4} {top1:4.0f}%  {marg}")
+        small = sorted((r for r in rows if r[0] == ly and r not in keep), key=lambda r: -r[2])
+        if small:
+            print(f"{ly:<8} + {len(small)} local pour(s) under 5%: "
+                  + ', '.join(f"{r[1]} {cov_of(r[2]):.0f}%" + (f" x{r[3]}" if r[3] > 1 else '') for r in small[:6])
+                  + (f" +{len(small) - 6}" if len(small) > 6 else '') + "  (--all: a row each)")
+    if planes:
+        print("\nplane layers (one net's fill over 30% of the board) and the other nets' tracks on them:")
+        print(f"{'layer':<8} {'plane':<{nw}} {'cover':>6} {'pieces':>6}  other tracks          longest (mm)")
+        for ly, (pn, cov, k, cut) in planes.items():
+            tot = f"{sum(v for _, v in cut):.0f} mm, {len(cut)} net(s)"
+            print(f"{ly:<8} {trunc(pn, nw):<{nw}} {cov:5.0f}% {k:>6}  {tot:<22}"
+                  + ', '.join(f"{unesc_disp(n)} {v:.0f}" for n, v in cut[:5]) + (' ...' if len(cut) > 5 else ''))
+        print("On an inner plane each mm of another net's track is a cut its return current detours "
+              "round:\nmove the longest to a signal layer (`refslots` names the signals over each cut). "
+              "On an outer\nlayer the pour fills round the routing, so its tracks are expected.")
     if unfilled:
         print("\nDECLARED BUT NOT FILLED (never filled, or emptied on last save):")
         for net, ly in unfilled:

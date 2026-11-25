@@ -3,6 +3,28 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kpcb zones - "what cuts the ground plane" had no command: the 2026-11-18 4-vs-6-layer
+      session regexed the board file for track mm per layer (In1 2202 mm on 61 nets), and `zones` printed 56
+      rows of 0-2% power pours with edge margins that mean nothing for them (long net names broke the columns).
+      Done: a non-GND pour under 5% folds into one `+ N local pour(s)` line per layer (`--all` a row each,
+      `--json` unchanged plus a `planes` key); net column sized to the names; a **plane layers** section per
+      layer where one net's fill covers > 30% (the `--voids` test): pieces, other nets' track mm and count,
+      the five longest. Reference board: 70 rows -> 25 lines, In1 reads 2202 mm / 61 nets as the session found.
+      Selftest case `kpcb zones planes` (the voids fixture gains a 1 mm2 +5V pour). 2026-11-25.
+- [x] kicad-review/kpcb check ESD (new rule) - no placement rule checked that a TVS/ESD clamp sits at the
+      connector it protects. Done: per connector pin on a net with a clamp (value/MPN ESD, TVS, TPDn, PESD,
+      USBLC, SRV05, RCLAMP, PRTR, SMF/SMAJ..., with a GND pad; its own supply pin by `SUP_PIN` skipped; DNP
+      skipped), the straight-line distance to the nearest clamp pad, worst net per (connector, clamp); WARN past
+      `--esd` (10 mm, kpcb.json) or when an IC's pad is > 1 mm nearer the pin than the clamp. Per connector, so
+      a shared I2C bus with a clamp per connector reads each against its own. Reference board: 4 WARN (J4.3 20 mm
+      from D28; J1.6, J16.3, J7.B7 10.6-12.5 mm). Selftest case `kpcb check ESD` (crtyd fixture). 2026-11-25.
+- [x] kicad-review/kpcb place - on a placed part `place REF` never showed where it sits, so a ranked spot could
+      not be read against it (one session ran `place R4 --near` 8 times). And once `--max` rows were shown,
+      all blocked, the first CLEAR spot was not printed though `-o` writes it (R44 on the reference board).
+      Done: a `now` row scored the same way, and a last line counting clear spots with a shorter ratsnest
+      (ratsnest, not score: the anchor term pulls every spot to the middle of a long net, which made C116 read
+      "better elsewhere" at 8.0 vs 2.6 mm); the first clear spot always prints. Scoring moved into one
+      `score_at`. Selftest case `kpcb place now`. 2026-11-25.
 - [x] kicad-review/kpcb assembly (new) - "how hard is this board to hand-assemble" had no command: two
       reference-project sessions (2026-11-12 PCBWay quote, 2026-11-19) wrote 7 inline scripts over
       `Board.fps` with hand-typed package-name regexes (`QFN|DFN|SON|LGA|...`), and the first said its

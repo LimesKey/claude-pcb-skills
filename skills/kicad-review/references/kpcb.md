@@ -93,7 +93,7 @@ carry F.SilkS art), so `summary`, `map` and `where` count it on the art's side.
 `-r N` (neighbour radius, 5), `--max N` (cap per rule / per neighbour list, 12),
 `--cols N` / `--side f|b` (for `map`), `--only`/`--skip RULE,RULE`, `--rules`,
 `--json`, `--no-suppress`, and one threshold per rule: `--edge 0.5` `--hole 1.5`
-`--conn 10` `--rf 8` `--therm 8` `--bypass 3` `--clear 0` `--fb 4` `--gap 0.25`
+`--conn 10` `--rf 8` `--therm 8` `--bypass 3` `--esd 10` `--clear 0` `--fb 4` `--gap 0.25`
 `--tol 1` `--span 0` (all mm; `--span 0` means half the board diagonal), plus
 `--fanout 8`. For `ic`: `--anchor REF`, `--cin REF,REF`, `--cout REF,REF`,
 `--ncin 3`, `--ncout 3`, `--assoc 6`. For `ampacity`: `--amps X` (required
@@ -301,7 +301,15 @@ Teardrops are zones in KiCad (1410 of 1434 on the reference board); every pour f
 and in `summary`/`ampacity` leaves them out, `summary` just counts them.
 
 `zones` alone reports per-layer coverage for the WHOLE board (area%, islands,
-edge margins) - useful for "is the pour fragmented", useless for "is GND solid
+edge margins). A pour under 5% that is not a ground (a power island, a heatsink pad) folds
+into one `+ N local pour(s)` line per layer, biggest first (`--all`: a row each; `--json`
+always has every row). Then **plane layers**: each layer where one net's fill covers over
+30% of the board (the `--voids` test), with its fill pieces and the other nets' track length
+on it, longest first. On an inner plane that list is what cuts the reference plane (the
+reference board's In1 GND: 2202 mm on 61 nets): move the longest to a signal layer, or weigh
+a stackup change, before reaching for stitching. `refslots` names the signals that cross each
+cut. On an outer layer the pour fills round the routing, so its tracks are expected. Whole-board
+coverage is useful for "is the pour fragmented" and useless for "is GND solid
 under this one RF part", since a dominant island and all-edges-reached can both
 be true while the fill still has a hole right where it matters. `zones REF...`
 answers that directly: an 11x11 grid of sample points inside the footprint's
@@ -353,7 +361,7 @@ the two GND stitching vias placed by hand landed at 113.45,155.16 and 109.05,150
 
 ## check rules
 
-`OVERLAP EDGECLR EDGEREF HOLECLR CONNACC RFNOISE THERMAL BYPASS NETSPAN NOCRTYD CRTYDPAD UNPLACED FABFLAGS DEADCU`.
+`OVERLAP EDGECLR EDGEREF HOLECLR CONNACC RFNOISE THERMAL BYPASS ESD NETSPAN NOCRTYD CRTYDPAD UNPLACED FABFLAGS DEADCU`.
 `--rules` for the legend.
 
 - **`OVERLAP`** screens on courtyard bounding boxes, then confirms against the real
@@ -407,6 +415,16 @@ the two GND stitching vias placed by hand landed at 113.45,155.16 and 109.05,150
   never on `pintype`: easyeda2kicad types nearly every pin `passive`, so a
   type-based test would silently check nothing - the same trap `PARPIN` documents
   in knet.
+- **`ESD`** measures each connector pin (not DNP, not a test point) on a net that has a TVS/ESD
+  clamp to the nearest clamp pad on that net, straight line like `BYPASS`, one line per
+  (connector, clamp) at its worst net. Per connector, so a shared bus with a clamp at each of
+  three connectors reads each against its own. A clamp is a part whose value or MPN names
+  one (ESD, TVS, TPDn, PESD, USBLC, SRV05, RCLAMP, PRTR, SMF/SMAJ/SMBJ...) and that has a GND
+  pad; its supply pin (`SUP_PIN`: TPD8S300's VPWR) is not a protected line. WARN past `--esd`
+  (10 mm), or when an IC's pad on the net sits over 1 mm nearer the pin than the clamp: a
+  strike reaches the IC first. Series parts are not followed: a clamp behind a series
+  resistor or ferrite is on another net and not measured. On the reference board the ESD5 to
+  connector distances run 2-9 mm where placed by intent; the four over 10 include a 20 mm one.
 - **`NETSPAN`** is the only rule that looks at wiring: a **fully placed** non-rail
   net whose pads sit further apart than `--span` (default half the board diagonal).
   Fully placed only, because a net still waiting on parts will move. Rails are
