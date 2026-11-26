@@ -231,7 +231,10 @@ def silk_art_board(d):
     designator at its centre: UNDER); P1: a 6 x 6 SMD pad far outside its 0.4 mm courtyard
     (freebox must not offer it); a filled board poly at 20..24,2..6 with board text 'AB' on
     it (OVERLAP); 'TTF' in DIN at 1.2 mm (SIZE); 'RC' justified left bottom at 5,18 whose
-    render_cache spans 5..7, 16.5..18 (the box)"""
+    render_cache spans 5..7, 16.5..18 (the box); a filled triangle (group 'Leaf' with the
+    square) whose bbox, not its outline, covers board text 'CD'; a '+' inside a 0.85 mm ring
+    (its cell's corners reach the ring, its bars do not); a filled poly 1 mm past the right
+    edge; a filled rect (group g2) under U5's courtyard"""
     sd = _typed_dir(os.path.join(d, 'silkart'))
     gt = lambda txt, x, y, extra='', font='': (f'\t(gr_text "{txt}"\n\t\t(at {x} {y} 0)\n\t\t(layer "F.SilkS")\n'  # noqa: E731
                                               f'\t\t(uuid "gt{txt}")\n\t\t(effects\n\t\t\t(font\n{font}\t\t\t\t(size 1.2 1.2)\n'
@@ -241,6 +244,14 @@ def silk_art_board(d):
           '\t\t\t\t\t(xy 5 16.5) (xy 7 16.5) (xy 7 18) (xy 5 18)\n\t\t\t\t)\n\t\t\t)\n')
     poly = ('\t(gr_poly\n\t\t(pts\n\t\t\t(xy 20 2) (xy 24 2) (xy 24 6) (xy 20 6)\n\t\t)\n\t\t(stroke\n'
             '\t\t\t(width 0.1)\n\t\t\t(type solid)\n\t\t)\n\t\t(fill yes)\n\t\t(layer "F.SilkS")\n\t\t(uuid "art1")\n\t)\n')
+    fpoly = lambda u, pts: (f'\t(gr_poly\n\t\t(pts {pts})\n\t\t(stroke (width 0) (type solid))\n'   # noqa: E731
+                            f'\t\t(fill yes)\n\t\t(layer "F.SilkS")\n\t\t(uuid "{u}")\n\t)\n')
+    poly += (fpoly('art2', '(xy 8 13) (xy 13 13) (xy 8 17)') + fpoly('art3', '(xy 29 18) (xy 31 18) (xy 31 19) (xy 29 19)')
+             + '\t(gr_circle (center 2.5 14) (end 3.35 14) (stroke (width 0.1) (type solid)) (fill no) (layer "F.SilkS")'
+             ' (uuid "ring1"))\n'
+             '\t(gr_rect (start 5 5) (end 6 6) (stroke (width 0) (type solid)) (fill yes) (layer "F.SilkS") (uuid "art4"))\n'
+             '\t(group "Leaf" (uuid "g1") (members "art1" "art2"))\n\t(group "" (uuid "g2") (members "art4"))\n'
+             + gt('CD', 11.8, 16.2) + gt('+', 2.5, 14))
     return _tab_board(sd, 't.kicad_pcb', 30, 20,
                       _silk_fp('U5', 8, 8, [('1', -3.5, 0, .6, .6, 'A'), ('2', 3.5, 0, .6, .6, 'B')],
                                ref_at=(0, 0, 0), crt=(4, 4))
@@ -408,7 +419,10 @@ def suite(tmp, mini):
                    "1/0.15 x2, 0.8/0.1 x1 (R2)"]))
     sab = silk_art_board(tmp.name)
     CASES.append(("kpcb silk art/ttf/body", ['kpcb.py', sab, 'silk'], 0,
-                  ["U5's designator under its own body", "board text 'AB' over board art",
+                  ["U5's designator under its own body", "board text 'AB' over board art", "!board text 'CD' over",
+                   "!board text '+' over", "board art gr_poly art3 (1 shape(s)) 1.00 mm past the board edge",
+                   "board art group g2 100% under U5's body", "group 'Leaf'           F.SilkS (2)",
+                   "+ 2 ungrouped shape(s): gr_poly x1, gr_circle x1",
                    "board text 'TTF' TrueType at 1.2 mm: glyph stroke under the 0.15 mm minimum (needs >= ~1.3 mm)"]))
     CASES.append(("kpcb pinlabels", ['kpcb.py', sab, 'pinlabels', 'J1', '-o', T('silkart/pl.kicad_pcb')], 0,
                   ["pinlabels J1: 1=VCC 2=VBAT", "F side, -x of the pads at ", "wrote 2 text(s)"]))
@@ -420,7 +434,7 @@ def suite(tmp, mini):
     CASES.append(("kpcb table read by silk", ['kpcb.py', T('silkart/tb.kicad_pcb'), 'silk', '--box', '20,6,28,12'], 0,
                   ["table cell           'VCC'", "table cell           'PWR'", "1/0.15 knockout"]))
     CASES.append(("kpcb table diff", ['kpcb.py', T('silkart/tb.kicad_pcb'), 'diff', sab], 0,
-                  ["board silk items 4 -> 5, 1 new/changed; table cells 3 added, 0 removed"]))
+                  ["board silk items 10 -> 11, 1 new/changed; table cells 3 added, 0 removed"]))
     CASES.append(("kpcb label --near", ['kpcb.py', sab, 'label', 'PWR', '--near', 'J1'], 0,
                   ["label 'PWR' F at ", "J1's designator hidden"]))
     CASES.append(("kpcb silk list", ['kpcb.py', srb, 'silk', 'R1'], 0, ["R1 designator", "(pad"]))
@@ -460,11 +474,17 @@ def suite(tmp, mini):
                   ["F silk from the model"]))
     CASES.append(("kpcb edit text keep shifts the render_cache", ['kpcb.py', sab, 'edit', 'text', 'gtRC', '6,18', 'keep',
                                                                   '-o', T('silkart/rc2.kicad_pcb')], 0, ["text  gtRC -> 6,18 keep"]))
+    CASES.append(("kpcb edit textsize scales the render_cache", ['kpcb.py', sab, 'edit', 'textsize', 'gtRC', '2.4', '0.2',
+                                                                 '-o', T('silkart/rc3.kicad_pcb')], 0,
+                  ["render_cache scaled x2 about its anchor", "textsize gtRC 2.4 0.2"]))
     yield
     import kpcb_board, kpcb_edit, kpcb_freebox, kpcb_place, kpcb_text                # the checks below call them in-process
     ab = kpcb_board.Board(sab)
     rcb = next(x['box'] for x in ab.silktexts if x['text'] == 'RC')
     og, ox, oy = kpcb_freebox.occupancy(ab, False)
+    rc3 = T('silkart/rc3.kicad_pcb')
+    rc3b = os.path.exists(rc3) and next(x['box'] for x in kpcb_board.Board(rc3).silktexts if x['text'] == 'RC')
+    check(rc3b == (5.0, 15.0, 9.0, 18.0), f"edit textsize x2: the TTF cache scales about the anchor 5,18 (5..7 -> 5..9): {rc3b}")
     check(rcb == (5.0, 16.5, 7.0, 18.0) and og[int((15 - oy) / 0.25)][int((19 - ox) / 0.25)] == 1,
                    f"TTF render_cache is the text box {rcb}; freebox counts P1's SMD pad outside its courtyard")
     wb2 = os.path.join(tmp.name, 'w2.kicad_pcb')                 # fixlines output, above

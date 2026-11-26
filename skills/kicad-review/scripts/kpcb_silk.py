@@ -8,14 +8,14 @@ texts) and the padless graphic footprints (logos):
   SILK-PAD      over a pad's mask opening (copper + mask margin, within the silk clearance): the fab clips it
   SILK-UNDER    under a placed part's body (Fab, else courtyard) on that side: hidden once built
   SILK-OVERLAP  over another silk text or a footprint's silk outline
-  SILK-EDGE     off the board or inside the silk clearance of the edge
+  SILK-EDGE     off the board or inside the silk clearance of the edge (texts, and board art by group)
   SILK-SIZE     under the fab minimum height / thickness (.kicad_dru text rules, .kicad_pro);
                 a TrueType text by its glyph stroke (TTF_STROKE x height)
   SILK-AMBIG    a designator nearer another part than its own, or > 2.5 mm from it
   SILK-MIRROR   back-side text not mirrored, or front-side text mirrored: unreadable
   SILK-ORIENT   a front designator upside down (180/270) or at an odd angle
   SILK-HIDDEN   a designator hidden or not on silk (info)
-  SILK-ART      a logo under a part body or over pads
+  SILK-ART      a logo or a board-art group under a part body, a logo over pads
 KiCad's own silk_over_copper / silk_overlap may be IGNORED in the .kicad_pro (they often
 are), so these are the checks that see them. Text boxes are estimated (0.9 x size per
 character, 1.2 x size tall: within ~0.1 mm of KiCad's stroke font for designators).
@@ -32,7 +32,8 @@ the same footprint and rotation in a row take the same side where they can.
 import argparse, math, re
 from collections import Counter, defaultdict
 from kcommon import natkey, trunc, print_findings, prefix
-from kpcb_board import Buckets, bbox, box_dist, grow, hit, inside, overlap_area, pad_box, seg_box_dist
+from kpcb_board import (Buckets, bbox, box_dist, box_poly_hit, grow, hit, inside, overlap_area, pad_box, pt_seg_dist,
+                        seg_box_dist)
 
 RULES = {'SILK-PAD': "silk over a pad's mask opening: clipped there",
          'SILK-UNDER': "silk under a placed part's body: hidden once assembled",
@@ -43,7 +44,7 @@ RULES = {'SILK-PAD': "silk over a pad's mask opening: clipped there",
          'SILK-MIRROR': 'back text not mirrored / front text mirrored',
          'SILK-ORIENT': 'front designator upside down or at an odd angle',
          'SILK-HIDDEN': 'designator hidden or off the silkscreen',
-         'SILK-ART': 'logo under a part body or over pads'}
+         'SILK-ART': 'logo or board art under a part body, logo over pads'}
 # KiCad judges a TrueType text's thickness by its glyph stroke, not (thickness): DIN Mittelschrift's
 # stroke is ~0.116 x height, so the 0.15 mm rule fails it under 1.3 mm (1.2 fails, 1.3 passes on
 # the reference board; bold does not help). ponytail: one ratio for every face; measure per face if another differs
@@ -87,13 +88,37 @@ def art_rows(b):
     out = []
     for f in sorted((f for f in b.fps.values() if not f.pads and f.arts), key=lambda f: natkey(f.ref)):
         ext = bbox([q for _l, bb in f.arts for q in (bb[:2], bb[2:])])
-        area = max(1e-9, (ext[2] - ext[0]) * (ext[3] - ext[1]))
-        cov = sorted(((overlap_area(ext, g.fab or g.crtyd) / area, g) for g in parts
-                      if g.back == f.back and hit(ext, g.fab or g.crtyd)), key=lambda t: (-t[0], natkey(t[1].ref)))
+        cov = cover(parts, ext, f.back)
         pads = [(g.ref, p['num']) for g in parts for p in g.pads if on_side(p, f.back)
                 and hit(ext, pad_box(p)) and any(hit(bb, pad_box(p)) for _l, bb in f.arts)]
         out.append((f, ext, cov, pads))
     return out
+
+
+def cover(parts, ext, back):
+    """[(fraction of ext under it, part)] biggest first: same-side parts whose body (Fab, else
+    courtyard) overlaps the box"""
+    area = max(1e-9, (ext[2] - ext[0]) * (ext[3] - ext[1]))
+    return sorted(((overlap_area(ext, g.fab or g.crtyd) / area, g) for g in parts
+                   if g.back == back and hit(ext, g.fab or g.crtyd)), key=lambda t: (-t[0], natkey(t[1].ref)))
+
+
+def where(cov):
+    return (f"HIDDEN under {cov[0][1].ref} ({100 * min(1, cov[0][0]):.0f}%)" if cov and cov[0][0] >= .5 else
+            'visible' + (f" (partly under {', '.join(f'{g.ref} {100 * c:.0f}%' for c, g in cov[:3])})" if cov else ''))
+
+
+def art_groups(b):
+    """board-level silk art (tables aside) by outermost KiCad group, an ungrouped shape on its
+    own: [(label, [Art], extent)] in file order"""
+    G = {}
+    for art in b.silkart:
+        if art.kind == 'table':
+            continue
+        name, gu = b.group_of.get(art.uuid, ('', ''))
+        lab = (f"group '{name}'" if name else f"group {gu[:8]}") if gu else f"gr_{art.kind} {art.uuid[:8]}"
+        G.setdefault(gu or art.uuid or id(art), (lab, []))[1].append(art)
+    return [(lab, arts, bbox([q for a in arts for q in (a.box[:2], a.box[2:])])) for lab, arts in G.values()]
 
 
 def limits(b):
@@ -123,11 +148,11 @@ class Silk:
                 self.put(('line', ly[0] == 'B', g, (a, c, w)), grow(bbox([a, c]), w / 2))
         for f, ext, _cov, _pads in art_rows(b):
             self.put(('art', f.back, f, None), ext)
-        for ly, bb, segs in b.silkart:              # board-level art (gr_poly, gr_circle...)
-            side = ly[0] == 'B'
-            if segs is None:
-                self.put(('art', side, None, None), bb)
-            for a, c, w in segs or ():
+        for art in b.silkart:                       # board-level art (gr_poly, gr_circle, table borders)
+            side = art.layer[0] == 'B'
+            if art.segs is None:                    # filled: judged by its outline, not its bbox
+                self.put(('art', side, None, art.ring), art.box)
+            for a, c, w in art.segs or ():
                 self.put(('line', side, None, (a, c, w)), grow(bbox([a, c]), w / 2))
         self.texts = {}                           # id(field) -> (side, box, owner, field)
         for g in b.fps.values():
@@ -173,7 +198,7 @@ class Silk:
                     not (g is owner and me is not None and me['kind'] == 'user'):     # its own +/- marks: by design
                 out.append(('SILK-OVERLAP', 'over board art' if g is None else 'over its own silk outline' if g is owner
                             else f"over {g.ref}'s silk outline", g.ref if g else ''))
-            elif kind == 'art' and anyp(lambda pb: hit(pb, ib)):
+            elif kind == 'art' and anyp(lambda pb: hit(pb, ib) and (g is not None or box_poly_hit(pb, extra))):
                 out.append(('SILK-OVERLAP', f"over logo {g.ref or '(blank)'}" if g else 'over board art', g.ref if g else ''))
             elif kind == 'text' and extra is not me and anyp(lambda pb: any(hit(pb, ob) for ob in extra.get('parts') or [ib])):
                 who = (f"{g.ref}'s {extra['kind'].lower()}" if extra['kind'] != 'Reference' else f"{g.ref}'s designator") \
@@ -185,6 +210,20 @@ class Silk:
                 seen.add((r[0], r[1]))
                 dedup.append(r)
         return dedup
+
+    def art_gap(self, arts):
+        """how far a group of board art sits inside the outline (< 0: that far past it); only
+        shapes whose box is within the clearance are measured, by their vertices"""
+        b, gap = self.b, 9.0
+        for art in arts:
+            if self.edge_gap(art.box) >= self.clr:
+                continue
+            pts = [(q, 0.0) for q in art.ring] if art.segs is None else \
+                [(q, w / 2) for a, c, w in art.segs for q in (a, c)]
+            for q, r in pts:
+                d = min(pt_seg_dist(q, u, v) for u, v in b.edge_segs)
+                gap = min(gap, (d if not b.rings or inside(q, b.rings) else -d) - r)
+        return gap
 
     def edge_gap(self, box, x=None):
         """how far the box (a text x: its nearest part) sits inside the outline (< 0: off it)"""
@@ -296,6 +335,16 @@ def findings(b, a, S=None):
             add('WARN', 'SILK-SIZE', f"{name} {size_short(x, mh, mt)}", [])
         if x['mirror'] != side:
             add('WARN', 'SILK-MIRROR', f"{name} on {x['layer']} is {'not ' if side else ''}mirrored", [])
+    parts = [g for g in b.placed() if g.pads]
+    for lab, arts, ext in art_groups(b):
+        cov = cover(parts, ext, arts[0].layer[0] == 'B')
+        if lab.startswith('group') and cov and cov[0][0] >= .5:
+            add('WARN', 'SILK-ART', f"board art {lab} {100 * min(1, cov[0][0]):.0f}% under {cov[0][1].ref}'s body",
+                [cov[0][1].ref])
+        gap = S.art_gap(arts)
+        if gap < clr:
+            add('WARN', 'SILK-EDGE', f"board art {lab} ({len(arts)} shape(s)) "
+                + (f"{-gap:.2f} mm past the board edge" if gap < 0 else f"{gap:.2f} mm from the edge (clearance {clr:g})"), [])
     for f, ext, cov, pads in art_rows(b):
         if cov and cov[0][0] >= .5:
             add('WARN', 'SILK-ART', f"logo {f.ref or '(blank)'} {100 * min(1, cov[0][0]):.0f}% under {cov[0][1].ref}'s body",
@@ -321,16 +370,27 @@ def c_silk(b, a):
     rows = art_rows(b)
     if rows:
         print(f"\nlogos ({len(rows)} padless graphic footprint(s); move one with `move REF X Y`, find room with `freebox`):")
+    parts = [g for g in b.placed() if g.pads]
     for f, ext, cov, pads in rows:
         lays = Counter(l for l, _ in f.arts)
         side = 'B' if f.back else 'F'
         print(f"  {f.ref or '(blank)':<10} {trunc(f.fp, 40):<40} {', '.join(f'{l} ({k})' for l, k in lays.most_common())}"
               + (f"  [footprint layer {f.layer}, art on {side}]" if f.layer[:1] != side else ''))
         print(f"  {'':<10} at {f.x:.2f},{f.y:.2f} rot {f.rot:g}" + (f" scale {f.scale[0]:g}" if f.scale != (1.0, 1.0) else '')
-              + f"  extent {ext[2] - ext[0]:.2f} x {ext[3] - ext[1]:.2f} mm  "
-              + (f"HIDDEN under {cov[0][1].ref} ({100 * min(1, cov[0][0]):.0f}%)" if cov and cov[0][0] >= .5 else
-                 'visible' + (f" (partly under {', '.join(f'{g.ref} {100 * c:.0f}%' for c, g in cov[:3])})" if cov else ''))
+              + f"  extent {ext[2] - ext[0]:.2f} x {ext[3] - ext[1]:.2f} mm  " + where(cov)
               + (f"; crosses {len(pads)} {side}-side pad(s): {' '.join(f'{r}.{n}' for r, n in pads[:6])}" if pads else ''))
+    groups = art_groups(b)
+    grouped = [(lab, arts, ext) for lab, arts, ext in groups if lab.startswith('group')]
+    if grouped:
+        print(f"\nboard art ({len(grouped)} KiCad group(s), by name or uuid):")
+    for lab, arts, ext in grouped:
+        lays = Counter(a.layer for a in arts)
+        print(f"  {trunc(lab, 22):<22} {', '.join(f'{l} ({k})' for l, k in lays.most_common())}  "
+              f"{ext[0]:.2f},{ext[1]:.2f}..{ext[2]:.2f},{ext[3]:.2f}  {ext[2] - ext[0]:.2f} x {ext[3] - ext[1]:.2f} mm  "
+              + where(cover(parts, ext, arts[0].layer[0] == 'B')))
+    loose = Counter(f"gr_{a.kind}" for lab, arts, _e in groups if not lab.startswith('group') for a in arts)
+    if loose:
+        print(f"{'  + ' if grouped else chr(10) + 'board art: '}{sum(loose.values())} ungrouped shape(s): {', '.join(f'{k} x{n}' for k, n in loose.most_common())}")
     refs = defaultdict(list)                      # (h, thick) -> refs, to name the odd ones out
     for f in b.placed():                          # placed order: ties keep Counter's old bucket order
         for x in f.fields:
@@ -522,6 +582,7 @@ def c_refdes(b, a):
     if _need_out(a, 'refdes'):
         return 1
     tx = PcbText(b.path)
+    from kpcb_edit import _drop_cache
     edits = defaultdict(list)
     for f, x, pos, h, t, *_r in ok:
         edits[f.uuid].append((x, pos, h, t, f))
@@ -531,7 +592,8 @@ def c_refdes(b, a):
             m = ref_block(s)
             if not m:
                 raise SystemExit(f"refdes: {f.ref} has no Reference field in the tab layout; nothing written")
-            s = s[:m.start()] + edit_text(m.group(0), fp_local(f, pos[:2]), pos[2], h, t, hide=False, centre=True) + s[m.end():]
+            s = s[:m.start()] + _drop_cache(edit_text(m.group(0), fp_local(f, pos[:2]), pos[2], h, t, hide=False,
+                                                      centre=True)) + s[m.end():]      # moved: a TrueType cache is stale
         tx.sub(fu, s)
     tx.save(a.out)
     print(f"wrote {a.out}: {len(ok)} designator(s) re-placed. Check: kpcb.py {a.out} silk, then kdrc.py {a.out} drc")

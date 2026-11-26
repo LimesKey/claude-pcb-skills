@@ -291,7 +291,9 @@ designator, or a board text by uuid), `value REF X,Y ANG|keep`, `hide-value REF`
 `show-value REF`, `valuesize REF H T` (the Value field, which a board may use as a label:
 BOOT, UART0, PGOOD) and `text UUID X,Y ANG|keep` (a board text or a footprint's user text -
 a jumper's '1'/'3' pin label; uuids from `silk REF`, which prints them in [brackets]; a
-TrueType text's stale `render_cache` is dropped on any move, resize or retext); `del UUID` and
+TrueType text's `render_cache` shifts with a `text ... keep` move and scales about the anchor
+with `textsize`/`valuesize` (a square size: matches KiCad's own plot to 1 um), and is dropped
+on a turn, a `ref`/`value` move or a retext, so `silk` keeps the real glyphs); `del UUID` and
 `textsize UUID H T` take a user text too (never a Reference/Value field: `hide`/`textsize REF`);
 `knockout UUID|REF on|off` (a board/user text, or REF's designator; `(layer "F.SilkS"
 knockout)`), `style UUID|REF bold|nobold|italic|noitalic` (the font's `(bold yes)` /

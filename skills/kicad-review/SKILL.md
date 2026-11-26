@@ -118,7 +118,7 @@ scrambled. The plot only tells you which sheet a symbol lives on.
 | what is almost-but-not-quite aligned (tidy placement pass) | `kpcb.py FILE tidy` - REF now -> new, each pre-checked with movecheck; the whole pass is a recipe in [recipes](references/recipes.md) |
 | where does a W x H logo/label fit on the silk | `kpcb.py FILE freebox f 8 4` - best centre per free region |
 | label a header's pins / put a silk label somewhere clear | `kpcb.py FILE pinlabels REF [NAME...] -o OUT` (names from the nets, through fuses/0R; `--table [TITLE]` a silk pinout table), `kpcb.py FILE label TEXT X,Y\|--near REF -o OUT` |
-| is the silkscreen clean: designators over pads, under bodies, overlapping, too small, ambiguous, upside down; logos hidden | `kpcb.py FILE silk` (`silk REF` or `--box` lists the texts there with what `edit` needs) |
+| is the silkscreen clean: designators over pads, under bodies, overlapping, too small, ambiguous, upside down; logos and board art hidden or past the edge | `kpcb.py FILE silk` (`silk REF` or `--box` lists the texts there with what `edit` needs) |
 | clean up the designators | `kpcb.py FILE refdes -o OUT` - flagged ones to clear spots beside their parts (`--show`, `--size`); the rest by hand: `edit ref REF X,Y 0 \| hide REF \| textsize REF\|UUID H T \| text UUID X,Y A \| value REF X,Y A \| hide-value REF \| valuesize REF H T \| knockout UUID\|REF on\|off \| style UUID\|REF bold\|nobold\|italic\|noitalic \| retext UUID T \| addtext T X,Y A f\|b H` (UUID: a board or footprint user text); the recipe is in [recipes](references/recipes.md) |
 | look at the silkscreen | `kpcb.py FILE view REF --layers silk` - drawn from the model, flagged texts red (KiCad's plot buries designators under Fab values) |
 | picture of a board region (chosen layers) | `kpcb.py FILE view REF [-r 5] [--layers B.Cu,B.SilkS]` -> PNG path |
@@ -168,6 +168,7 @@ b = Board('board.kicad_pcb')
 # b.tracks[i] dict: net layer w a b len uuid locked   b.vias[i] dict: net size drill x y layers uuid
 # b.fills[i] dict: net layer pts area zone   b.zones[i]: net, layers = z (+ .outline .priority
 #   .keepout .name .uuid)   also b.copper b.stack b.outline b.edge_segs b.teardrops b.silktexts
+# b.silkart[i] Art: layer box segs ring uuid kind (board silk graphics)   b.group_of[uuid] -> (name, group uuid)
 nl = Netlist('board-merged.net')
 # nl.comps[REF] dict: value footprint props lcsc dnp in_bom sheet description
 # nl.nets[NET] -> [{ref pin fn type}]   nl.cpins[REF][PIN] -> NET

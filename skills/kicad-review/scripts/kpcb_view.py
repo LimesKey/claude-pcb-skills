@@ -174,11 +174,11 @@ def silk_svg(b, box, back, flagged=frozenset()):
         if f.back == back and inb(ext):
             o.append(f'<rect x="{ext[0]}" y="{ext[1]}" width="{ext[2] - ext[0]}" height="{ext[3] - ext[1]}" fill="#f0f0f0" '
                      f'fill-opacity="0.25" stroke="#f0f0f0" stroke-width="0.08" stroke-dasharray="0.3 0.2"/>')
-    for ly, bb, segs in b.silkart:              # board art: table borders, gr_ lines and shapes
-        if ly[0] == side and inb(bb):
+    for art in b.silkart:                       # board art: table borders, gr_ lines and shapes
+        if art.layer[0] == side and inb(art.box):
             o += [f'<line x1="{p[0]}" y1="{p[1]}" x2="{q[0]}" y2="{q[1]}" stroke="#f0f0f0" stroke-width="{w}" '
-                  f'stroke-linecap="round"/>' for p, q, w in segs] if segs is not None else \
-                [f'<rect x="{bb[0]}" y="{bb[1]}" width="{bb[2] - bb[0]}" height="{bb[3] - bb[1]}" fill="#f0f0f0" fill-opacity="0.6"/>']
+                  f'stroke-linecap="round"/>' for p, q, w in art.segs] if art.segs is not None else \
+                [f'<polygon points="{" ".join(f"{x:g},{y:g}" for x, y in art.ring)}" fill="#f0f0f0" fill-opacity="0.6"/>']
     texts = [x for f in b.placed() for x in f.fields] + b.silktexts
     for x in texts:
         if x['hidden'] or not x['layer'].startswith(side + '.SilkS') or not inb(x['box']):

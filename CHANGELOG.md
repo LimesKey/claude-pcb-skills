@@ -3,6 +3,23 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kpcb edit textsize keeps a TrueType cache - `textsize UUID` dropped a TrueType text's
+      render_cache, so `silk` fell back to the estimated box and reported pad hits KiCad's render shows clear;
+      `textsize REF`, `ref REF` and `refdes` left a TrueType designator's cache stale. Done: `textsize`/`valuesize` scale the
+      cached glyphs about the anchor (kpcb_edit._scale_cache; a non-square size still drops it), `ref`/`value`
+      and `refdes` drop it. A reference-board 'GNSS' doubled to 2 mm: scaled cache bbox = KiCad's plot to 1 um. Selftest:
+      `kpcb edit textsize scales the render_cache` + its box check. 2026-11-26.
+- [x] kicad-review/kpcb silk board art by outline, SILK-EDGE for art, art groups - a filled `gr_poly`/`gr_rect`/
+      `gr_circle` was its bbox, so labels beside a leaf's stem and a '+' inside a ring read "over board art" (5
+      lines on the reference board, 3 false); board art 1.3 mm past the edge went unreported; listing art groups
+      took hand scripts (2026-11-26 transcripts). Done: `Board.silkart` is `Art(layer box segs ring uuid kind)`, a
+      filled shape keeps its ring and SILK-OVERLAP tests glyph boxes against it (kpcb_board.box_poly_hit); a lone
+      '+' is its two bars (measured on a KiCad plot), like the lone '-'; SILK-EDGE judges board art per outermost
+      KiCad group by its vertices (`board art group fda81e7a (20 shape(s)) 1.30 mm past the board edge`); SILK-ART
+      flags a group >= 50% under a body; a board-art table (one row per group, ungrouped shapes folded) follows
+      the logos; `Board.group_of`; `view` draws filled art as its polygon. Reference board: 83 -> 81 warn (3
+      overlaps gone, 1 edge + 2 art added); FL1 still reads 0.06 mm into a leaf, inside the box estimate's error.
+      Selftest: `kpcb silk art/ttf/body`. 2026-11-26.
 - [x] kicad-review/kpcb silk SILK-PAD by mask opening - a label touching a fiducial's mask opening (what clips
       silk) passed, since pads were tested by copper. Done: each exposed pad's obstacle is its copper box grown
       by its mask margin (pad, footprint or board `pad_to_mask_clearance`, from the existing `p['mask']`); the

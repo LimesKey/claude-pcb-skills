@@ -65,7 +65,7 @@ carry F.SilkS art), so `summary`, `map` and `where` count it on the art's side.
 | `movecheck REF X Y [ROT]` | what moving REF there would **newly** break: foreign pads/tracks/vias inside the clearance, copper to the edge, a same-side courtyard overlap, and the tracks the move drags swinging into foreign copper. `REF --scan x=X y=A..B [--step 0.05]` slides it and prints the clear stretches; `via X,Y NX,NY` moves one via and says whether tracks are tied to it; `--no-drag`: KiCad's Move (M), its tracks and in-pad vias stay. Read-only. See below. |
 | `tidy` | near-miss alignment, each fix pre-checked with `movecheck`: a row/column with one part 0.005-0.15 mm off, a row of >= 3 with an uneven pitch, mounting-hole insets that nearly agree, rotations off a multiple of 90, a small part a little off a big same-side part's long centre line (a thermistor under a cell holder). Prints `REF now -> new`; writes nothing. See below. |
 | `freebox SIDE W H` | where a W x H mm silk box (a logo, a label) fits on side `f`/`b`: clear of that side's courtyards, every through-hole pad and that side's silk (logos, board art, refdes and other footprint text), >= 1 mm inside the edge. Best centre per free region, by margin. See below. |
-| `silk` | **silkscreen review**: every visible designator, value, user and board text (and silk `(table ...)` cell: a knockout cell is its filled box, the borders are board art) over exposed pads, under a part body, overlapping other silk or a silk outline, off/near the edge, under the fab minimum size, ambiguous (nearer another part), mirrored wrongly or upside down; hidden designators; logos (art layer, scaled extent, the body hiding it, pads it crosses). Folded like `check`, `--only SILK-...`. See below. |
+| `silk` | **silkscreen review**: every visible designator, value, user and board text (and silk `(table ...)` cell: a knockout cell is its filled box, the borders are board art) over exposed pads, under a part body, overlapping other silk or a silk outline, off/near the edge, under the fab minimum size, ambiguous (nearer another part), mirrored wrongly or upside down; hidden designators; logos (art layer, scaled extent, the body hiding it, pads it crosses) and board-art groups (extent, the body hiding it, past the edge). Folded like `check`, `--only SILK-...`. See below. |
 | `silk REF... \| --box X0,Y0,X1,Y1` | every silk text in the region with position, angle, size, uuid (board texts) and its findings: what `edit ref/hide/show/textsize/text` takes. |
 | `refdes [REF...] [--all] [--show] [--size H] -o OUT` | re-place designators beside their parts, clear of all of the above (writer). [kpcb-writers](kpcb-writers.md). |
 | `view REF... [-r 5] [--layers L,L] [-o x.png]` | PNG of the board around parts (their courtyards + `-r`), an `X,Y`, or `--box X0,Y0,X1,Y1`, on the part's side layers (Cu, SilkS, Fab, CrtYd + Edge.Cuts) unless `--layers`. `--layers silk`: that side's silkscreen drawn from the model (pads, Fab bodies, silk outlines, texts; flagged texts red with their box). `--tracks [--layers L,..] [--net N].. [--mark X,Y;..]`: tracks/pads/vias from the model, no fills, every `--net` green; `--layers` picks the copper (4 layers overlaid are unreadable in a dense area: one or two). `--by-net [--layers L,..]`: the copper fills included, one hue per net, GND grey, a legend - a foreign band in a plane, a dead pour or an island stands out. `--sites LAYER:X,Y;..`: one panel per site. See below. |
@@ -709,9 +709,13 @@ own side:
   holders and easyeda headers have no Fab); a part's own user marks (+/-) are exempt there.
 - **SILK-OVERLAP** another visible silk text, a footprint's silk outline (stroke width
   counted; a footprint's own user texts on its own outline are by design), a logo, or
-  board art (filled `gr_poly`/`gr_rect`/`gr_circle` by box; unfilled ones and lines by
-  stroke, so a label inside a frame is not under it).
-- **SILK-EDGE** off the board or within the silk clearance of the edge.
+  board art (filled `gr_poly`/`gr_rect`/`gr_circle` by outline, so a label beside a leaf's
+  stem is clear; unfilled ones and lines by stroke, so a label inside a frame or ring is not
+  under it). A lone `+` is its two bars (a ring round a polarity mark is clear), a lone `-`
+  its bar.
+- **SILK-EDGE** off the board or within the silk clearance of the edge; board art too, per
+  KiCad group (an ungrouped shape alone), by its vertices: `board art group fda81e7a (20
+  shape(s)) 1.30 mm past the board edge`.
 - **SILK-SIZE** height or thickness under the fab minimum (`.kicad_dru` text_height /
   text_thickness, `.kicad_pro` min_text_*). A TrueType text's (thickness) is ignored: KiCad
   measures the glyph stroke, ~0.116 x height for DIN Mittelschrift, so it needs height >=
@@ -727,8 +731,11 @@ own side:
   bottom/right edge) or off a multiple of 90. Back-side reading direction depends on the
   flip convention, so it is not judged.
 - **SILK-HIDDEN** (info) designators hidden or off the silk, one summary line.
-- **SILK-ART** a logo HIDDEN >= 50% under a body, or over pads (below).
-Then the logo table and the designator size histogram (pick the normalisation from it; the
+- **SILK-ART** a logo HIDDEN >= 50% under a body, or over pads (below); a board-art group
+  >= 50% under a body.
+Then the logo table, the board-art table (one row per KiCad group: name or uuid prefix,
+layer and shape count, extent, the body hiding it; ungrouped shapes folded into one line by
+kind), the designator size histogram (pick the normalisation from it; the
 minority buckets name their refs, up to 6), then the bold/italic designators (`edit style`).
 `silk REF... [-r]` / `--box` lists the texts in a region instead, with board and user
 text uuids and the TTF/knockout/bold/italic flags. KiCad's own `silk_over_copper` / `silk_overlap` may

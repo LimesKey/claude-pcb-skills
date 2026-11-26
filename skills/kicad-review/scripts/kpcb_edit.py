@@ -1078,6 +1078,25 @@ def _shift_cache(s, dx, dy):
     return re.sub(r'\n(\t+)\(render_cache .*?\n\1\)', sh, s, flags=re.S)
 
 
+def _scale_cache(s, k, c):
+    """a TrueType text resized (square size kept square): its cached outline scales by k
+    about its anchor c (board mm), as KiCad's own layout does, so `silk` keeps the real glyphs"""
+    if '(render_cache' not in s:
+        return s
+    sc = lambda m: re.sub(r'\(xy (\S+) (\S+)\)', lambda q: f"(xy {num(c[0] + (float(q[1]) - c[0]) * k)} "   # noqa: E731
+                          f"{num(c[1] + (float(q[2]) - c[1]) * k)})", m[0])
+    print(f"  (TrueType text: its render_cache scaled x{k:g} about its anchor)")
+    return re.sub(r'\n(\t+)\(render_cache .*?\n\1\)', sc, s, flags=re.S)
+
+
+def _resize_cache(old_blk, h):
+    """cache(blk, anchor) for a text resized to h: scaled when its old size was square, else dropped"""
+    m = re.search(r'\(size (\S+) (\S+)\)', old_blk)
+    if m and float(m[1]) == float(m[2]) and float(m[1]) > 0:
+        return lambda blk, c: _scale_cache(blk, h / float(m[1]), c)
+    return lambda blk, _c: _drop_cache(blk)
+
+
 def fp_field(s, fu):
     """the span of the text (property or fp_text) with uuid fu inside a footprint's text"""
     for m in re.finditer(r'\n\t\t\((?:property|fp_text)(?: (?:"(?:[^"\\]|\\.)*"|\w+))+\n.*?\n\t\t\)', s, re.S):
@@ -1258,7 +1277,11 @@ def c_edit(b, a):
                 print(f"  unround all: {done} zone(s) now sharp + fillet {'(stale fills dropped: refill)' if done else ''}")
         elif k == 'textsize' and v[0] not in b.fps:     # a board or footprint user text, by uuid
             from kpcb_silk import edit_text
-            u = text_edit(v[0], lambda blk, f: edit_text(blk, h=float(v[1]), t=float(v[2])))
+            rs = {}                                     # the old size, read before the edit replaces it
+            def resize(blk, f):
+                rs['c'] = _resize_cache(blk, float(v[1]))
+                return edit_text(blk, h=float(v[1]), t=float(v[2]))
+            u = text_edit(v[0], resize, cache=lambda blk, c: rs['c'](blk, c))
             print(f"  textsize {u[:8]} {v[1]} {v[2]}")
         elif k == 'knockout':
             if v[1] not in ('on', 'off'):
@@ -1298,10 +1321,13 @@ def c_edit(b, a):
             m = ref_block(s, fld)
             if not m:
                 raise SystemExit(f"edit: {f.ref} has no {fld} field; nothing written")
-            if k in ('ref', 'value'):
-                nb = edit_text(m.group(0), fp_local(f, xy(v[1])), None if v[2] == 'keep' else float(v[2]), centre=True)
+            if k in ('ref', 'value'):                   # moved, maybe turned and re-justified: a TrueType cache is stale
+                nb = _drop_cache(edit_text(m.group(0), fp_local(f, xy(v[1])), None if v[2] == 'keep' else float(v[2]),
+                                           centre=True))
             elif k in ('textsize', 'valuesize'):
+                fx = next((x for x in f.fields if x['kind'] == fld), None)
                 nb = edit_text(m.group(0), h=float(v[1]), t=float(v[2]))
+                nb = _resize_cache(m.group(0), float(v[1]))(nb, (fx['x'], fx['y'])) if fx else _drop_cache(nb)
             else:
                 nb = edit_text(m.group(0), hide=k.startswith('hide'))
             cur[f.uuid] = s[:m.start()] + nb + s[m.end():]

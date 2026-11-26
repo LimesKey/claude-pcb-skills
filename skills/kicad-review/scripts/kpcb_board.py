@@ -1,6 +1,6 @@
 """Board model for kpcb.py: part classification, geometry helpers, IPC-2221 math, FP and Board."""
 import os, re, sys, json, math, glob
-from collections import defaultdict
+from collections import defaultdict, namedtuple
 from functools import cached_property
 from kcommon import (load_sexp, kids, kid, val, has, prefix, parse_value, unesc_disp,
                      rail_voltage, rules_warning, GND_RE)
@@ -170,7 +170,8 @@ def text_parts(x, y, ang, txt, node, k=1.0):
     the estimate). Otherwise one box per word, at the ink KiCad's plot draws: 0.82 x width
     per character for the stroke font, with 0.28 / 0.31 x width bearing at a left / right
     anchor (68 texts on the reference board: residual -0.22..+0.15 x width per word, p10..p90); 0.75 for a
-    TrueType face (its caches: 0.53-0.89, median 0.75); a lone '-' is a bar at mid-height. A
+    TrueType face (its caches: 0.53-0.89, median 0.75); a lone '-' is a bar at mid-height, a lone
+    '+' its two bars (a KiCad plot: arms +-0.38 x width, crossing 0.07 x height below mid). A
     knockout text is one solid box: the ink grown by KiCad's knockout margin, height / 9
     (measured on a KiCad plot: 0.122 at 1.1 mm, 0.167 at 1.5)."""
     if 'knockout' in (kid(node, 'layer') or []):
@@ -207,8 +208,13 @@ def _ink(x, y, ang, txt, node, k):
         for m in re.finditer(r'\S+', ln):
             ra, rb = r0 + iw * m.start(), r0 + iw * m.end()
             ua, ub = (-rb, -ra) if 'mirror' in js else (ra, rb)
-            va, vb = (ly + .4 * ch, ly + .7 * ch) if m.group(0) == '-' else (ly, ly + ch * 1.2)
-            parts.append(bbox([xf(u, v, x, y, ang) for u in (ua, ub) for v in (va, vb)]))
+            if m.group(0) == '+':           # two bars, not its cell: a ring drawn round a '+' is clear of it
+                cu = (ua + ub) / 2
+                bars = [(cu - .46 * fw, cu + .46 * fw, ly + .52 * ch, ly + .82 * ch),
+                        (cu - .15 * fw, cu + .15 * fw, ly + .22 * ch, ly + 1.13 * ch)]
+            else:
+                bars = [(ua, ub) + ((ly + .4 * ch, ly + .7 * ch) if m.group(0) == '-' else (ly, ly + ch * 1.2))]
+            parts += [bbox([xf(u, v, x, y, ang) for u in (ua, ub) for v in (va, vb)]) for ua, ub, va, vb in bars]
     return est, parts or [est]
 
 def _ccw(a, b, c):
@@ -229,6 +235,16 @@ def seg_box_dist(a, b, box):
             return 0.0
     return min([pt_box_dist(a, box), pt_box_dist(b, box)] +
                [pt_seg_dist(c, a, b) for c in corners])
+
+def box_poly_hit(box, ring):
+    """does a box touch or overlap a closed ring (a filled polygon): an edge enters the box,
+    or the box sits inside the ring"""
+    return (any(seg_box_dist(a, b, box) == 0 for a, b in zip(ring, ring[1:] + ring[:1]))
+            or point_in_poly(((box[0] + box[2]) / 2, (box[1] + box[3]) / 2), ring))
+
+# board silk graphic: segs [(a, b, w)] its stroke (None when filled), ring the filled outline
+# (None when stroked), kind 'poly'/'rect'/'circle'/'line'/'arc'/'table'
+Art = namedtuple('Art', 'layer box segs ring uuid kind')
 
 def _edges(R):
     return [(r[i], r[i + 1]) for r in R for i in range(len(r) - 1)]
@@ -598,7 +614,16 @@ class Board:
                 self.cushapes += self._cushape(g, val(g, 'net'), lambda q: q)
         # board-level silk (pasted art, text): [(layer, bbox)]; text boxes are estimated
         self.silk, self.silktexts = [], []      # silktexts: board gr_text with the detail `silk` judges
-        self.silkart = []                       # board silk graphics: (layer, bbox, None | [(a, b, w)] outline)
+        self.silkart = []                       # board silk graphics: [Art]
+        self.group_of = {}                      # item uuid -> (name, uuid) of its outermost group
+        parent = {m: (str(gr[1]) if len(gr) > 1 and isinstance(gr[1], str) else '', val(gr, 'uuid'))
+                  for gr in kids(root, 'group') for m in (kid(gr, 'members') or [])[1:]}
+        for m, top in parent.items():
+            for _ in range(16):                 # nested groups: climb to the outermost
+                if top[1] not in parent:
+                    break
+                top = parent[top[1]]
+            self.group_of[m] = top
         for g in root[1:]:
             if not (isinstance(g, list) and g and str(g[0]).startswith('gr_') and val(g, 'layer').endswith('.SilkS')):
                 continue
@@ -1048,7 +1073,7 @@ class Board:
                 segs.setdefault(((x0, y1), (x1, y1)), bw if R(y0) == R(tb[1]) and val(bd, 'header') == 'yes' else sw)
         self.silk.append((ly, tb))
         w = max(segs.values(), default=0)
-        self.silkart.append((ly, grow(tb, w / 2), [(a, c, ww) for (a, c), ww in segs.items()]))
+        self.silkart.append(Art(ly, grow(tb, w / 2), [(a, c, ww) for (a, c), ww in segs.items()], None, val(t, 'uuid'), 'table'))
         for c, (x0, y0, x1, y1) in zip(cells, boxes):
             txt, ko = str(c[1]), val(c, 'knockout') == 'yes'
             if not txt.strip() and not ko:
@@ -1076,13 +1101,12 @@ class Board:
 
     @classmethod
     def _art(cls, g):
-        """(layer, bbox, segs): a filled shape is its bbox (segs None); an unfilled one or a line
-        is its stroke, so text inside a frame or ring is not under it"""
+        """Art: a filled shape is its outline ring (segs None); an unfilled one or a line is its
+        stroke, so text inside a frame or ring is not under it"""
         pts, t = cls._gpts(g, g[0]), g[0][3:]
         f = kid(g, 'fill')
         w = _f((kid(kid(g, 'stroke') or [], 'width') or ['', '0.1'])[1], 0.1)
-        if t in ('poly', 'rect', 'circle') and f and f[1] in ('yes', 'solid'):
-            return val(g, 'layer'), bbox(pts), None
+        filled = t in ('poly', 'rect', 'circle') and f and f[1] in ('yes', 'solid')
         if t == 'rect':
             (x0, y0), (x1, y1) = pts
             pts = [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]
@@ -1092,7 +1116,9 @@ class Board:
             pts = [(c[0] + r * math.cos(k * math.pi / 12), c[1] + r * math.sin(k * math.pi / 12)) for k in range(25)]
         elif t == 'poly':
             pts = pts + pts[:1]
-        return val(g, 'layer'), grow(bbox(pts), w / 2), [(a, c, w) for a, c in zip(pts, pts[1:])]
+        if filled:
+            return Art(val(g, 'layer'), bbox(pts), None, pts[:-1], val(g, 'uuid'), t)
+        return Art(val(g, 'layer'), grow(bbox(pts), w / 2), [(a, c, w) for a, c in zip(pts, pts[1:])], None, val(g, 'uuid'), t)
 
     def _crt_seg(self, g, tag, f):
         """one courtyard primitive as a board-frame polyline, for rings()"""
