@@ -43,7 +43,7 @@ from collections import Counter, defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from kcommon import (Netlist, kid, kids, val, load_sexp, sym_geometry, natkey,  # noqa: E402
-                     print_findings, kicad_cli, sch_files, CACHE, cache_prune, parse_args,
+                     print_findings, kicad_cli, project_sheets, CACHE, cache_prune, parse_args,
                      top_level_sheets, _xf, svg_png, box_arg)
 
 RULES = {
@@ -677,7 +677,7 @@ def c_labelspot(nl, a):
 def plots(nl):
     """kicad-cli's SVG of every sheet, re-plotted once per schematic save"""
     d = os.path.dirname(os.path.abspath(nl.path))
-    files = sch_files(d)
+    files = project_sheets(d)
     # the sheet named after the .kicad_pro: kicad-cli plots every top-level sheet from
     # it, but only one from any other root (the netlist's source is the first
     # top-level sheet, Overview, which plotted nothing else)

@@ -15,7 +15,7 @@ __all__ = [
     'CACHE', 'GND_RE', 'KNOWN_RAILS', 'Netlist', 'SchInfo', 'cache_prune', 'cache_put', 'eng', 'svg_png',
     'fp_lib_dirs', 'fp_mod', 'kicad_env', 'expand_vars', 'fp_pads', 'doctor', 'has', 'kicad_cli', 'kicad_running', 'parse_args', 'box_arg', 'sym_geometry',
     'kid', 'kids', 'load_sexp', 'natkey', 'netlist_warnings', 'parse_sexp', 'parse_value',
-    'prefix', 'print_findings', 'rail_voltage', 'refrange', 'refresh_netlist', 'sch_files', 'smart_re',
+    'prefix', 'print_findings', 'rail_voltage', 'refrange', 'refresh_netlist', 'sch_files', 'project_sheets', 'smart_re',
     'suppressed', 'top_level_sheets', 'project_root', 'trunc', 'tvs_standoff', 'unesc_disp',
     'val', '_fkey',
 ]
@@ -124,6 +124,24 @@ def sch_files(d):
     eeschema writes those every few minutes; they are not part of the design)."""
     return sorted(f for f in glob.glob(os.path.join(d, '*.kicad_sch'))
                   if not os.path.basename(f).startswith(('_autosave-', '~')))
+
+def project_sheets(d):
+    """the design's sheets: the project root and top-level sheets, then every Sheetfile they
+    pull in, each relative to the sheet naming it (as eeschema loads them: subfolders followed),
+    sorted; with no root to start from, sch_files(d). Not every .kicad_sch in the directory: a
+    backup copy beside the sheets is not the design (and kfp vendor --apply would edit it)."""
+    todo = [os.path.join(d, fn) for fn in dict.fromkeys([project_root(d)] + [f for f, _n in top_level_sheets(d)])
+            if fn] or sch_files(d)
+    out = []
+    while todo:
+        p = os.path.normpath(todo.pop(0))
+        if p in out or not os.path.isfile(p):
+            continue
+        out.append(p)
+        with open(p, encoding='utf-8', errors='replace') as fh:
+            todo += [os.path.join(os.path.dirname(p), m.replace('\\"', '"'))
+                     for m in re.findall(r'\(property "Sheetfile" "((?:[^"\\]|\\.)*)"', fh.read())]
+    return sorted(out)
 
 def top_level_sheets(d):
     """[(filename, name)] from a .kicad_pro's schematic.top_level_sheets (KiCad
@@ -958,7 +976,7 @@ class SchInfo:
 
     def _load(self, nl):
         d = os.path.dirname(os.path.abspath(nl.path))
-        files = sch_files(d)
+        files = project_sheets(d)
         if not files:
             return
         self.files = files

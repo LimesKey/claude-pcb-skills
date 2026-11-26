@@ -25,7 +25,7 @@ undo), or both."""
 import filecmp, glob, json, os, re, shutil, subprocess, tempfile
 from collections import Counter
 from kcommon import (_lib_table, _global_cfg, expand_vars, fp_lib_dirs, kicad_cli, kicad_env, kicad_running, natkey,
-                     project_root, refrange, sch_files, top_level_sheets)
+                     project_root, project_sheets, refrange)
 from kfp import board_spans, dump, lib_copy, load, proj_of, q, u
 from kfp_diff import canon
 
@@ -201,7 +201,7 @@ def c_vendor(a):
                 raise SystemExit(f"vendor: {ref}'s footprint text is not unique on the board; nothing written")
             edits += 1
     block, sch, libs, stable, slines = _sym_plan(a, proj, env, where, moved)
-    for p in _schematics(proj):
+    for p in project_sheets(proj):
         if p in sch:
             s = sch[p]
         else:
@@ -260,23 +260,6 @@ def c_vendor(a):
           f"model file(s), the board, {len(sch)} schematic(s){', fp-lib-table' if table else ''}"
           f"{', sym-lib-table' if stable else ''}. Check: kfp.py {a.file} libs; kverify.py {proj}; kpcb.py {a.file} diff OLD")
     return 0
-
-
-def _schematics(proj):
-    """the project's sheets: its root and top-level sheets, then every Sheetfile they pull in,
-    each relative to the sheet naming it (as eeschema loads them). Not every .kicad_sch under
-    the directory: a backup copy in ./orig/ is not the design, and --apply would edit it."""
-    todo = [os.path.join(proj, fn) for fn in dict.fromkeys([project_root(proj)] + [f for f, _n in top_level_sheets(proj)])
-            if fn] or sch_files(proj)
-    out = []
-    while todo:
-        p = os.path.normpath(todo.pop(0))
-        if p in out or not os.path.isfile(p):
-            continue
-        out.append(p)
-        with open(p, encoding='utf-8', errors='replace') as fh:
-            todo += [os.path.join(os.path.dirname(p), m) for m in re.findall(r'\(property "Sheetfile" ' + _STR, fh.read())]
-    return sorted(out)
 
 
 def _blocks(txt, ind, lo=0, hi=None):
@@ -367,7 +350,7 @@ def _sym_plan(a, proj, env, where, moved):
     if nick and os.path.isdir(target):
         block = f"{nick} is a .kicad_symdir library (one file per symbol): not written by this tool"
     texts, entries, placed = {}, [], []
-    for p in _schematics(proj):
+    for p in project_sheets(proj):
         with open(p, encoding='utf-8') as fh:
             txt = texts[p] = fh.read()
         m = re.search(r'\n\t\(lib_symbols\n.*?\n\t\)\n', txt, re.S)

@@ -184,6 +184,15 @@ def suite(tmp, mini):
     CASES.append(("knet summary next", ['knet.py', NET, 'summary'],          0, ["R      4  next R5    R1-R4"]))
     CASES.append(("knet draw",    ['knet.py', NET, 'draw', 'U1', '-d', '2', '-o', svg1], 0, []))
     CASES.append(("knet repeated sheet", ['knet.py', REPEAT, 'around', 'R2'], 0, ["sheet /B/  at (100,100)mm"]))
+    import shutil                                    # the sub-sheet in a subfolder: found through its Sheetfile link
+    sf = os.path.join(tmp.name, 'subdir')
+    os.makedirs(os.path.join(sf, 'sheets'))
+    shutil.copy2(os.path.join(os.path.dirname(REPEAT), 'sub.kicad_sch'), os.path.join(sf, 'sheets', 'sub.kicad_sch'))
+    open(os.path.join(sf, 'root.kicad_sch'), 'w').write(open(os.path.join(os.path.dirname(REPEAT), 'root.kicad_sch')).read()
+                                                        .replace('"Sheetfile" "sub.kicad_sch"', '"Sheetfile" "sheets/sub.kicad_sch"'))
+    shutil.copy(REPEAT, os.path.join(sf, 'repeat.net'))                 # newer than the sheets: not stale
+    CASES.append(("knet sheet in a subfolder", ['knet.py', os.path.join(sf, 'repeat.net'), 'around', 'R2'], 0,
+                  ["sheet /B/  at (100,100)mm"]))
     CASES.append(("knet sheets",  ['knet.py', REPEAT, 'sheets'],             0, ["/A/  (1)", "/B/  (1)\n  R2     10k"]))
     CASES.append(("knet notes",   ['knet.py', REPEAT, 'notes'],              0,
                   ["=== /", "(50,30)  [1 mm  SMALL]  A and B are one sub.kicad_sch", "notes under 1.27 mm text"]))

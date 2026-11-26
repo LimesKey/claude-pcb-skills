@@ -3,6 +3,16 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kcommon.project_sheets (+SchInfo, ksheet, kfp_vendor) - "which sheets are the design" had four
+      answers; SchInfo took every *.kicad_sch in the netlist's directory (no subfolders), kfp_vendor walked
+      Sheetfile links (subfolders followed). Done: kfp_vendor's walker is `kcommon.project_sheets(d)` (root +
+      top-level sheets, else every sheet in d, then every Sheetfile link relative to the sheet naming it), used
+      by SchInfo, ksheet's plots and kfp_vendor: a sub-sheet in a subfolder now has positions, notes and NC
+      flags in knet/ksheet. Not taken: a [(file, path, page, uuid)] for all four. kdrc.discover_roots answers
+      "which are roots" and ksheet.page_order reads page numbers from cached parses (45 ms); folding them in
+      would parse every sheet for kdrc too. The staleness checks keep sch_files (an mtime glob per call, not
+      a read of every sheet). Goldens 39/39 unchanged. Selftest: `knet around` on a sheet moved to sheets/.
+      2026-11-26.
 - [x] kicad-review/kpcb_board (+kpcb_route, kpcb_zones, kpcb_silk) - the project's rules were read by 9 functions,
       each with its own glob (5 unsorted), except tuple and dru regex (two the same clearance regex; three did
       not drop `#` comments). Done: `Board.rules` (cached): the first sorted .kicad_pro's design rules, classes,
