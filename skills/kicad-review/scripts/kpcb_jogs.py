@@ -89,7 +89,8 @@ def slide(pts, m, d):
     return simplify(pts[:m] + [p0, p1] + pts[m + 2:]), [pts[m - 1], p0, p1, pts[m + 2]]
 
 
-STEPS = (0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3, 0.2)  # partial fractions, most first
+STEPS = (0.9, 0.8, 0.7)    # partial fractions, most first: under 70% the jog barely shrinks in a view
+                           # (20% of a 0.96 mm jog leaves 0.77) and every edit is DRC risk
 
 
 def find(b, skip, sel=None, every=False, chs=None):
@@ -172,9 +173,14 @@ def verdict(b, net, ly, w, order, pts, k, skip=(), cks=None):
     ck = cks.get(key := (net, ly, w, tuple(order), tuple(pts)))
     if ck is None:
         ck = cks[key] = Clear(b, net, ly, w, pts, order)
-    for tag, new, loc in capped(pts, k):
-        if ck.poly(loc):
+    ix = cks.get('ix') or cks.setdefault('ix', Index(b))
+    ok = lambda new: keeps(b, ix, net, ly, w, pts, new) and neck_ok(b, net, ly, w, pts, new, order)   # noqa: E731
+    for tag, new, loc in capped(pts, k):                 # pass_jogs' own tests: no promise it refuses
+        if ck.poly(loc) and ok(new):
             return f"fix: smooth --jogs ({tag})"
+        if ck.poly(loc):
+            why.append(f"{tag}: would neck the plane, or bend inside its own antipad")
+            continue
         if not all(ck.contact_ok(p, c) for p, c in zip(loc, loc[1:])):
             why.append(f"{tag}: would touch its own net's copper somewhere new")
             continue
@@ -187,7 +193,7 @@ def verdict(b, net, ly, w, order, pts, k, skip=(), cks=None):
             note = ' (--jogs --nudge may drag it)'
         why.append(f"{tag}: {describe(bl)}{note}")
     for tag in 'AB':
-        f = next((f for f in STEPS for r in [partial(pts, k, tag, f)] if r and ck.poly(r[1])), None)
+        f = next((f for f in STEPS for r in [partial(pts, k, tag, f)] if r and ck.poly(r[1]) and ok(r[0])), None)
         if f:
             why.append(f"fix: smooth --jogs slides {tag} {f:.0%} of the way")
             break

@@ -481,6 +481,9 @@ def cache_prune(cap=512 << 20):
     except OSError:
         pass
 
+_MEMO = {}                      # load_sexp: the last big file's (abspath, size, mtime) and marshal bytes
+
+
 def load_sexp(path, cache_over=100_000):
     """parse_sexp() of a file, memoised on disk (marshal) for files over
     `cache_over` bytes: the 12 MB board parses in 0.45 s and loads in 0.1 s.
@@ -488,19 +491,30 @@ def load_sexp(path, cache_over=100_000):
     file's older copies, so the cache holds one snapshot per file. A hit bumps
     the snapshot's mtime: cache_prune drops the oldest first, and by write time
     the 18 MB snapshots of one-off scratch copies evicted the board read daily.
-    A writer's hidden scratch board (`.reroute-*`) is read once: never cached."""
+    A writer's hidden scratch board (`.reroute-*`, `.X.smooth0`) is never cached on disk.
+    In-process, the last big file read is kept as marshal bytes: a second read of it (a
+    pass's Board, its untouched `orig` copy, _keepouts) is a fresh tree at load speed."""
     st = os.stat(path)
     def parse():
         with open(path, encoding='utf-8', errors='replace') as f:
             return parse_sexp(f.read())
-    if st.st_size < cache_over or os.path.basename(path).startswith('.'):
+    if st.st_size < cache_over:
         return parse()
+    key = (os.path.abspath(path), st.st_size, st.st_mtime_ns)
+    if _MEMO.get('key') == key:                 # read again in this process: a fresh copy, never
+        return marshal.loads(_MEMO['raw'])      # a shared tree a caller might edit
+    if os.path.basename(path).startswith('.'):  # smooth --all: Board, orig Board and _keepouts each read
+        tree = parse()                          # one pass's hidden file (3 parses -> 1, 1.2 s each)
+        _MEMO.update(key=key, raw=marshal.dumps(tree))
+        return tree
     tag = hashlib.sha1(os.path.abspath(path).encode()).hexdigest()[:12]
     ver = hashlib.sha1(f"{st.st_size}|{st.st_mtime_ns}|{sys.version}".encode()).hexdigest()[:12]
     name = f"sexp_{tag}_{ver}.marshal"
     try:
         with open(os.path.join(CACHE, name), 'rb') as f:
-            tree = marshal.loads(f.read())      # load(f) reads piecemeal: 5x slower
+            raw = f.read()
+        tree = marshal.loads(raw)               # load(f) reads piecemeal: 5x slower
+        _MEMO.update(key=key, raw=raw)
         try:
             os.utime(os.path.join(CACHE, name))
         except OSError:

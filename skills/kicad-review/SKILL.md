@@ -127,7 +127,7 @@ scrambled. The plot only tells you which sheet a symbol lives on.
 | which signals cross a slot in their reference plane | `kpcb.py FILE refslots [NET]` - mm over GND / another plane / gap, and the inner track cutting each gap |
 | what width/gap gives 50 ohm (not routed yet) | `kzo.py W S H ER [T] --mask TM ERM` - the same 2D field solver, one number |
 | how thick is the assembled board / what sticks up | `kpcb.py FILE height` - 3D-model heights + the Z stack at each cell |
-| how hard is hand assembly / which parts need paste + reflow, per side, BOM lines | `kpcb.py FILE assembly` - pads under the body and pitch <= 0.5 mm from geometry, not package names |
+| how hard is hand assembly / which parts need paste + reflow, per side, BOM lines | `kpcb.py FILE assembly` - pads under the body, pitch <= 0.5 mm and lands heat-sinked into a pour, from geometry, not package names |
 | vias in pads worth a fab note | `kpcb.py FILE viapad --signal` (or `--min 4` for thermal arrays) |
 | what does a backwards cell or pack do | `knet.py FILE revpol` - junctions that conduct (fused?), FETs the cells switch, ICs that lose ground, IC pins pushed below GND with their ESD current |
 | what voltage does this divider set | `knet.py FILE divider U5.OVLO` - nominal + worst case from real resistor values |

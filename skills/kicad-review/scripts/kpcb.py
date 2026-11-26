@@ -33,8 +33,8 @@ Commands:
                                       SMD pads a via drill reaches into, small first
                                       (advice from the board's via protection)
   kpcb.py FILE assembly               hand assembly: parts per side, BOM lines, pads, body
-                                      sizes, and the parts needing paste + reflow/hot air (a
-                                      pad under the body, pitch <= 0.5 mm), finest pitch first
+                                      sizes, the parts needing paste + reflow/hot air (a pad
+                                      under the body, pitch <= 0.5 mm), lands sunk in a pour
   kpcb.py FILE where F5.1 BT1.1       a PAD's absolute centre, size, net; two specs
                                       also print the distance between them
   kpcb.py FILE net NET                every pad on a net (absolute xy), copper per

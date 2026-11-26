@@ -34,11 +34,14 @@ def assembly_board(d):
     """`assembly`: U1 a 0.4 mm-pitch QFN with no Fab outline, its exposed pad found as ringed
     by the others and its thermal via not a joint; U2 an LGA (every pad inside the Fab body);
     Q1 (back) and C1 iron parts; J1 through-hole (its pads under the body are soldered from
-    the other side); C2 DNP and FID1 excluded from the BOM are not counted."""
+    the other side); C2 DNP and FID1 excluded from the BOM are not counted. D1 a SOD-882
+    (1.0x0.6 body, 3/4 of each land under it: bottom-only terminals, listed) where C1, an 0402
+    chip of the same size, is not. BT1.1 a 9x7.5 mm land solid into a 240 mm2 GND pour
+    (heat-sinked); BT1.2 on the same pour through thermal spokes is not."""
     p = os.path.join(d, 'asm.kicad_pcb')
-    pad = lambda n, x, y, w, h, k='smd', lay='F.Cu': (                                 # noqa: E731
+    pad = lambda n, x, y, w, h, k='smd', lay='F.Cu', ex='': (                          # noqa: E731
         f' (pad "{n}" {k} rect (at {x} {y}) (size {w} {h})' + (' (drill .3)' if k != 'smd' else '')
-        + f' (layers "{lay}"))')
+        + f' (layers "{lay}"){ex})')
     fab = lambda x0, y0, x1, y1, s='F': f' (fp_rect (start {x0} {y0}) (end {x1} {y1}) (layer "{s}.Fab"))'   # noqa: E731
     fp = lambda ref, x, y, body, attr='smd', s='F': (                                 # noqa: E731
         f' (footprint "x:{ref}" (layer "{s}.Cu") (at {x} {y}) (property "Reference" "{ref}") (attr {attr}){body})')
@@ -50,13 +53,17 @@ def assembly_board(d):
                                                      ((1, -.95, 1.4), (2, .95, 1.4), (3, 0, -1.4)))
     chip = fab(-.5, -.25, .5, .25) + pad(1, -.48, 0, .56, .62) + pad(2, .48, 0, .56, .62)
     tht = fab(-1.27, -1.27, 3.81, 1.27) + pad(1, 0, 0, 1.7, 1.7, 'thru_hole', '*.Cu') + pad(2, 2.54, 0, 1.7, 1.7, 'thru_hole', '*.Cu')
+    sod = fab(-.3, -.5, .3, .5) + pad(1, 0, -.35, .7, .4) + pad(2, 0, .35, .7, .4)
+    bt = (fab(-6, -4, 6, 4, 'B') + pad(1, -4, 0, 9, 7.5, lay='B.Cu', ex=' (net "GND") (zone_connect 2)')
+          + pad(2, 6, 0, 9, 7.5, lay='B.Cu', ex=' (net "GND")'))
     open(p, 'w').write('(kicad_pcb (version 20240108) (generator "pcbnew")'
                        ' (layers (0 "F.Cu" signal) (31 "B.Cu" signal) (25 "Edge.Cuts" user))'
                        ' (gr_rect (start 0 0) (end 30 20) (layer "Edge.Cuts"))'
                        + fp('U1', 5, 5, qfn) + fp('U2', 10, 5, lga) + fp('Q1', 15, 5, sot, s='B')
                        + fp('C1', 20, 5, chip) + fp('C2', 23, 5, chip, 'smd dnp')
                        + fp('FID1', 26, 5, pad(1, 0, 0, 1, 1), 'smd exclude_from_bom')
-                       + fp('J1', 5, 15, tht, 'through_hole') + ')')
+                       + fp('J1', 5, 15, tht, 'through_hole') + fp('D1', 25, 15, sod)
+                       + fp('BT1', 50, 10, bt, s='B') + _gzone('B.Cu', rect(30, 0, 60, 20), rect(38, 4, 62, 14)) + ')')
     return p
 
 
@@ -321,10 +328,12 @@ def suite(tmp, mini):
                    "SW1 has LCSC C202388 but is excluded from the BOM",
                    "1 part(s) whose BOM/pos flags differ from their library footprint: TP1 (-pos_files)"]))
     CASES.append(("kpcb assembly", ['kpcb.py', assembly_board(tmp.name), 'assembly'], 0,
-                  ["5 parts to fit, 4 front / 1 back, 5 BOM lines; 18 SMD pads, 2 through-hole",
+                  ["7 parts to fit, 5 front / 2 back, 7 BOM lines; 22 SMD pads, 2 through-hole",
                    "not counted: DNP 1 (C2); excluded from the BOM 1 (FID1)",
-                   "0402-size 2 | 0603-size 0 | 0805-size 0 | 1206-size 1 | larger 1 | no Fab outline 1",
-                   "through-hole (1): J1", "(2 parts)", "the other 3:",
+                   "0402-size 3 | 0603-size 0 | 0805-size 0 | 1206-size 1 | larger 2 | no Fab outline 1",
+                   "through-hole (1): J1", "(3 parts)", "the other 4:", "!C1  ",
+                   "D1                       F        -    0.40    2/2   0.6x1.0  D1",
+                   "heat-sinked lands (1):", "BT1.1      B      9.0x7.5      240     1  GND",
                    "U1                       F     0.40    0.20    1/9         -  U1",
                    "U2                       F     0.60    0.30    4/4   1.2x1.2  U2"]))
     CASES.append(("kpcb check CRTYDPAD HOLECLR", ['kpcb.py', crtyd_board(tmp.name), 'check', '--only', 'CRTYDPAD,HOLECLR'], 2,

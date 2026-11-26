@@ -599,16 +599,59 @@ def keeps(b, ix, net, ly, w, old, new):
     return not touched(b, ix, net, ly, w, old) - touched(b, ix, net, ly, w, new)
 
 
+_SOLVED = {}        # pass_chains across --all's rounds: (chain, the copper within reach) -> its re-lay
+
+
+def _reach(b, ly):
+    """ly's tracks and the vias by 5 mm cell, for pass_chains' memo key: what a chain's Clear
+    reads that a pass can change (pads, fills, edge and rules stay put through a smooth run)"""
+    items = []
+    for t in b.tracks:
+        if t['layer'] == ly:
+            r = t['w'] / 2
+            x0, y0, x1, y1 = bbox([t['a'], t['b']])
+            items.append(((x0 - r, y0 - r, x1 + r, y1 + r), ('t', t['net'], t['a'], t['b'], t['w'])))
+    for v in b.vias:
+        if ly in via_layers(v, b.copper):
+            r = v['size'] / 2
+            items.append(((v['x'] - r, v['y'] - r, v['x'] + r, v['y'] + r), ('v', v['net'], v['x'], v['y'], v['size'])))
+    cells = defaultdict(list)
+    for bb, key in items:
+        for cx in range(math.floor(bb[0] / 5), math.floor(bb[2] / 5) + 1):
+            for cy in range(math.floor(bb[1] / 5), math.floor(bb[3] / 5) + 1):
+                cells[(cx, cy)].append((bb, key))
+    return cells
+
+
+def _near(cells, pts, m=2.6):
+    """every item of _reach within m of a chain's Clear box (its pts + 0.6): Grid paints an item
+    out to its clearance + half-width, Exact looks 1 mm further; 2.6 covers clearances to 1 mm"""
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    B = (min(xs) - 0.6 - m, min(ys) - 0.6 - m, max(xs) + 0.6 + m, max(ys) + 0.6 + m)
+    out = set()
+    for cx in range(math.floor(B[0] / 5), math.floor(B[2] / 5) + 1):
+        for cy in range(math.floor(B[1] / 5), math.floor(B[3] / 5) + 1):
+            out.update(k for bb, k in cells.get((cx, cy), ()) if bb[2] >= B[0] and bb[0] <= B[2] and bb[3] >= B[1] and bb[1] <= B[3])
+    return frozenset(out)
+
+
 def pass_chains(b, skip, sel):
-    """[(saving, net, layer, w, order, old pts, new pts)], cross-checked between nets"""
+    """[(saving, net, layer, w, order, old pts, new pts)], cross-checked between nets. A chain
+    whose copper within reach is as it was in an earlier round reuses that round's re-lay
+    (smooth --all: 4 rounds re-solved all 635 chains, 2,538 Grid rasters; the answer is the same)"""
     clr = _clearance_fn(b)[0]
     ix = Index(b)
-    props, chs = [], chains(b, skip, ix)
+    props, chs, reach = [], chains(b, skip, ix), {}
     for net, ly, w, order, pts in chs:
         if not sel(net, ly, pts) or (len(pts) == 2 and octi(*pts)):
             continue
-        ck = Clear(b, net, ly, w, pts, order)
-        new = chamfer(solve(pts, ck), ck, w)
+        if ly not in reach:
+            reach[ly] = _reach(b, ly)
+        key = (net, ly, w, tuple(pts), _near(reach[ly], pts))
+        new = _SOLVED.get(key)
+        if new is None:
+            ck = Clear(b, net, ly, w, pts, order)
+            new = _SOLVED[key] = chamfer(solve(pts, ck), ck, w)
         c0, c1 = cost(pts), cost(new)
         if c1 < c0 - 0.05 and length(new) <= length(pts) * 1.09 + 0.02 and keeps(b, ix, net, ly, w, pts, new):
             props.append((c0 - c1, net, ly, w, order, pts, new))
@@ -949,6 +992,18 @@ def leg_in_cap(t, o):
         all(pt_seg_dist(e, o['a'], o['b']) <= r + 1e-6 for e in (t['a'], t['b']))
 
 
+def cap_rounds(t1, t2, th):
+    """a leg too short for a V: the legs' inner edges (half-widths r1, r2, a = 180 - th apart)
+    cross (r1 cos a + r2) / sin a out along leg 1; a leg ending before that has its end cap fill
+    the inside of the turn, so the corner reads as a blob (a 0.2 mm stub of a 1 mm track into a
+    pad or via centre: 5 of the reference board's 6 `acute` rows, checked in a view 2026-11-25)"""
+    a = math.radians(180 - th)
+    if is_arc(t1) or is_arc(t2) or math.sin(a) < 1e-6:
+        return False
+    r1, r2 = t1['w'] / 2, t2['w'] / 2
+    return t1['len'] < (r1 * math.cos(a) + r2) / math.sin(a) or t2['len'] < (r2 * math.cos(a) + r1) / math.sin(a)
+
+
 def corner_nodes(b, skip, ix):
     """[(turn, net, layer, node, i1, i2)] sharpest first: visible-candidate corners >= 46 deg
     at nodes of exactly two tracks, not on a pad or via (an end cap that only overlaps one is
@@ -1008,7 +1063,7 @@ def pass_corners(b, skip, sel, hidden=False):
     for th, net, ly, V, i1, i2 in corner_nodes(b, skip, ix):
         t1, t2 = b.tracks[i1], b.tracks[i2]
         if not sel(net, ly, [V]) or (not hidden and (covered(b, ix, net, ly, V, max(t1['w'], t2['w']), {i1, i2})
-                                                     or leg_in_cap(t1, t2) or leg_in_cap(t2, t1))):
+                                                     or leg_in_cap(t1, t2) or leg_in_cap(t2, t1) or cap_rounds(t1, t2, th))):
             continue
         r = cut_corner(b, net, ly, V, i1, i2)
         if not r:
@@ -1263,6 +1318,13 @@ def _new(net, ly, w, a, c):
             'mid': ((a[0] + c[0]) / 2, (a[1] + c[1]) / 2), 'uuid': None, 'locked': False}
 
 
+def _as_loaded(b):
+    """b's tracks as loaded, before a pass edits them in place: all write_moved reads of the
+    second Board(path) each pass built (0.8 s apiece, 5 of 8 passes, every --all round)"""
+    from types import SimpleNamespace
+    return SimpleNamespace(tracks=[dict(t) for t in b.tracks])
+
+
 def write_moved(b, t, orig):
     """write the in-memory track changes of pass_corners/pass_square: moved ends by uuid,
     new segments added; returns the original tracks whose teardrops must go"""
@@ -1430,14 +1492,14 @@ def one_pass(path, kind, a, out):
         _kept, dead = write_chains(b, t, taken)
         n = len(taken)
     elif kind == 'corners':
-        orig = Board(path)
+        orig = _as_loaded(b)
         done = pass_corners(b, skip, sel, a.hidden)
         print(f"corners: {len(done)} cut")
         for th, net, ly, V, con in done[:a.max]:
             print(f"  {net.split('/')[-1]:28s} {ly:6s} {th:5.0f} deg at {V[0]:.3f},{V[1]:.3f}  -> {len(con) - 1} seg(s)")
         dead, n = write_moved(b, t, orig), len(done)
     elif kind == 'square':
-        orig = Board(path)
+        orig = _as_loaded(b)
         done = pass_square(b, skip, sel)
         print(f"square: {len(done)} pad end(s) slid onto a 45")
         for net, ly, E, E2 in done[:a.max]:
@@ -1445,7 +1507,7 @@ def one_pass(path, kind, a, out):
                   f"({math.dist(E, E2) * 1000:.0f} um)")
         dead, n = write_moved(b, t, orig), len(done)
     elif kind == 'joints':
-        orig = Board(path)
+        orig = _as_loaded(b)
         done = pass_joints(b, skip, sel)
         print(f"joints: {len(done)} joint(s) held only by end caps closed")
         for net, ly, mv, gap in done[:a.max]:
@@ -1453,7 +1515,7 @@ def one_pass(path, kind, a, out):
                   + ', '.join(f"{e[0]:.3f},{e[1]:.3f} -> {X[0]:.3f},{X[1]:.3f}" for e, X in mv))
         dead, n = write_moved(b, t, orig), len(done)
     elif kind == 'pads':
-        orig = Board(path)
+        orig = _as_loaded(b)
         left = len(pad_ends(b, Index(b), skip))
         done = pass_pads(b, skip, sel)
         print(f"pads: {len(done)} of {left} trace end(s) at a pad edge brought onto the pad centre")
@@ -1462,7 +1524,7 @@ def one_pass(path, kind, a, out):
                   f"({math.dist(E, C):.2f} mm)")
         dead, n = write_moved(b, t, orig), len(done)
     elif kind == 'micro':
-        orig = Board(path)
+        orig = _as_loaded(b)
         ops = pass_micro(b, skip, sel)
         cnt = Counter(o[0] for o in ops)
         print(f"micro: {cnt['merge']} segment(s) < {MICRO:g} mm merged into a neighbour, {cnt['del']} deleted "

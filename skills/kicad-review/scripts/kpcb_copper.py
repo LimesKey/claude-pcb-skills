@@ -728,7 +728,7 @@ def dead_copper(b, net, C=None, terminal=None):
         e = eid.get((id(t), k0, k1))
         pieces[id(t)].append((k0, k1, e in dset if e is not None else R(k0) in deadv))
     vk = {id(v): k for k, v in enumerate(C.vias)}
-    out = []
+    out, label = [], _labeler(C, R)
     for es in grp.values():
         trk, vias, fills, at, off, touch, stubs = {}, {}, [], None, None, [], []
         for e in es:
@@ -741,7 +741,7 @@ def dead_copper(b, net, C=None, terminal=None):
                 if w in keep_v:
                     touch.append((w, _key_xy(k) or (o['x'], o['y'])))
                     if at is None:
-                        at, off = touch[-1][1], _label(C, R, w, touch[-1][1], k[1] if k[0] == 'pt' else k[-1])
+                        at, off = touch[-1][1], label(w, touch[-1][1], k[1] if k[0] == 'pt' else k[-1])
         vs = {w for e in es for w in E[e][:2]} - keep_v
         fills = [fl for j, fl in enumerate(C.fills) if R(('fill', j)) in vs]
         band = any(zname.get(fl.get('zone'), '').startswith(('route ', 'fatten ')) for fl in fills)
@@ -822,22 +822,35 @@ def _on_line(t, p):
     return (round(ax + s * (bx - ax), 4), round(ay + s * (by - ay), 4))
 
 
-def _label(C, R, w, xy, ly):
-    """what node w is where the branch meets it (on layer ly): a pad there, else a pour, a
-    track, a via"""
+def _labeler(C, R):
+    """label(w, xy, ly): what node w is where a branch meets it (on layer ly): a pad there, else
+    a pour (ly's first), a track, a via, else any pad of w. Per-node first hits, built once per
+    dead_copper: a scan of every pad, fill, ideal node and via per branch was 0.46 s of GND's"""
+    pads, fills, pt, via = defaultdict(list), defaultdict(list), {}, {}
     for i, (f, p) in enumerate(C.pads):
-        if R(('pad', i)) == w and pad_dist(p, xy) <= 0.3:
-            return f"{f.ref}.{p['num']}"
-    for j, fl in sorted(enumerate(C.fills), key=lambda jf: jf[1]['layer'] != ly):
-        if R(('fill', j)) == w:
-            return f"{fl['layer']} pour"
-    k = next((k for k in C.ideal if k[0] == 'pt' and R(k) == w), None)
-    if k:
-        return f"{k[1]} track"
+        pads[R(('pad', i))].append((f, p))
+    for j, fl in enumerate(C.fills):
+        fills[R(('fill', j))].append(fl)
+    for k in list(C.ideal):
+        if k[0] == 'pt':
+            pt.setdefault(R(k), k)
     for k, v in enumerate(C.vias):
-        if R(('via', k)) == w or any(R(('vl', k, ly)) == w for ly in C.vlay[k]):
-            return f"via {v['x']:.2f},{v['y']:.2f}"
-    return next((f"{f.ref}.{p['num']}" for i, (f, p) in enumerate(C.pads) if R(('pad', i)) == w), 'copper')
+        for key in [('via', k)] + [('vl', k, ly) for ly in C.vlay[k]]:
+            if key in C.ideal:                       # a node not in the graph is no branch's
+                via.setdefault(R(key), v)
+
+    def label(w, xy, ly):
+        hit = next((f"{f.ref}.{p['num']}" for f, p in pads.get(w, ()) if pad_dist(p, xy) <= 0.3), None)
+        if hit:
+            return hit
+        if w in fills:
+            return f"{next((fl for fl in fills[w] if fl['layer'] == ly), fills[w][0])['layer']} pour"
+        if w in pt:
+            return f"{pt[w][1]} track"
+        if w in via:
+            return f"via {via[w]['x']:.2f},{via[w]['y']:.2f}"
+        return f"{pads[w][0][0].ref}.{pads[w][0][1]['num']}" if pads.get(w) else 'copper'
+    return label
 
 
 def dead_desc(d):

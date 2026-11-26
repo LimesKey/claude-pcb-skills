@@ -3,6 +3,47 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kpcb_assembly - a leadless part whose land runs past its Fab body (SOD-882) was not listed as
+      needing paste, and big lands tied into a pour were not reported (owner's call, 2026-11-25). Done: a
+      two-terminal SMD part with a body <= 1.05 x 0.65 mm counts a pad as under it when more than half the land
+      sits under the body (SOD-882 0.75, every 0402 chip on the reference board 0.33-0.45: a size rule alone
+      would list every 0402, whose body is as small). New `heat-sinked lands` section: a land >= 4 mm2 (a pad
+      number's pads together: an edge SMA's 2 is four) joined solid, not through thermal spokes, to >= 50 mm2
+      of its net's fill over every layer it reaches, largest pour first, parts already in the reflow list left
+      out. Reference board: D24 D25 added; 7 lands (J13.2 1613 mm2, BT1/BT2 179 and 80). 2026-11-25.
+- [x] kicad-review/kpcb_jogs - partial jog collapses went down to 20% of the way (a 0.96 mm jog left at 0.77): an
+      edit with no visible gain, each one DRC risk. Done: 90, 80 or 70% only (owner's call). On the way: the
+      `tracks --kind jog` verdict promised `fix: smooth --jogs (A)` for a collapse `smooth` refuses (plane neck
+      or a bend inside its own antipad): it now runs the pass's own `keeps` + `neck_ok` and says why instead.
+      Cusp selftest updated, `kpcb tracks jog antipad cusp` added. 2026-11-25.
+- [x] kicad-review/kpcb_tracks - `corners` counted a corner whose short leg ends before the two legs' inner edges
+      cross: its end cap fills the inside of the turn, so the copper reads as a blob, not a V (5 of the
+      reference board's 6 `acute` rows, checked in close-up views: 0.2 mm stubs of 0.8-1.3 mm tracks into a
+      via or pad centre). Done: `cap_rounds` (the edges cross (r1 cos a + r2) / sin a out along leg 1), in the
+      census and smooth's corner pass alike. Reference board: acute 6 -> 1 (D27-K at U23.4, a real V), 46-90
+      deg 21 -> 6 (the 15 dropped have 1-11 um legs or a 0.12 mm stub). Selftest `kpcb tracks acute stub cap`.
+      2026-11-25.
+- [x] kicad-review/kpcb_smooth - `smooth --all` 145 -> 85 s on a reference board scratch, output identical bar
+      the new segments' random uuids: `pass_chains` reuses a chain's re-lay when the chain and every track and
+      via within reach of its Clear box are as in an earlier round (rounds 2-3 re-solved all 1,710 chains),
+      and the corners/square/joints/pads/micro passes copy the tracks as loaded instead of a second
+      `Board(path)` (0.8 s each). `load_sexp` keeps the last big file as marshal bytes, so a re-read of one
+      pass's hidden scratch board (never disk-cached) is a fresh tree at load speed. A boxed no-op run: 6.4 s.
+      Round 1's solves remain (BACKLOG). 2026-11-25.
+- [x] kicad-review/kpcb_tracks - `--kind pad` reloaded the board for `pass_pads` (it edits its board): now a
+      shallow copy with its own track dicts. 1.68 -> 1.11 s on the reference board, output identical.
+      2026-11-25.
+- [x] kicad-review/kpcb_copper - `_label` scanned every pad, fill (sorted per call), ideal node and via per dead
+      branch: per-node first-hit maps built once per `dead_copper`. GND 1.44 -> 1.28 s (second build 0.64 ->
+      0.49), identical. The fill-to-fill touch test stays open. 2026-11-25.
+- [x] kicad-review/kdoc - real-PDF extraction had no test. Done: `kdoc_pdf` writes a two-page PDF with the
+      stdlib (p1 Helvetica text, p2 no text layer); `kdoc index real pdf` (2 pages, `scan 1/2`) and `kdoc grep
+      real pdf`, skipped with a line when poppler is missing. 2026-11-25.
+- [x] kicad-review/tests - the route suite's in-process checks built boards in the temp root, so their rules
+      came from whichever suite wrote a `.kicad_pro` there first (3 `WARN` lines on a full run). Done: their own
+      `inproc/` dir with a rules-free `.kicad_pro` + `.kicad_dru` (and the hole board's project written before
+      it is read). No WARN; 370/370. The backlog's selftest-split entry was already done by 4399250.
+      2026-11-25.
 - [x] kicad-review/tests - `selftest.py` (3056 lines, 238 KB) was touched by 21 of the last 30 commits and was
       the most-grepped file in skill sessions (~50 grep/sed calls a run to find where a command's cases and
       builders sit): its cases were appended in date order, every tool interleaved in one 1235-line `main()`,

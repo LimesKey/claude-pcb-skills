@@ -393,8 +393,8 @@ blocks it, the via is lifted, the chain re-laid, and the via put back at its own
 the nearest legal spot within 2.5 mm (`stitch`'s search), or the jog is left and says so.
 `--nudge` also drags exactly one blocking routed signal via (never RF/USB/pair) and the
 track ends in it <= 0.3 mm straight away, when `movecheck via` finds the drag clean. Then,
-partial: the run slides 90..20% of the way (its bends along the lead-in and the jog leg),
-the most that clears - a smaller jog is still a win. No collapse (full, partial, lifted
+partial: the run slides 90, 80 or 70% of the way (its bends along the lead-in and the jog leg),
+the most that clears; less is left as it lies (a 20% slide of a 0.96 mm jog still reads as one). No collapse (full, partial, lifted
 via or nudge) may leave a plane a strip of 0..0.25 mm beside another item (track, via, pad,
 another net's fill) where it filled full width before (`neck_ok`: two plane clearances <= gap
 < them + 0.25; laid copper is in the model, so a second jog sees the first), nor add a bend

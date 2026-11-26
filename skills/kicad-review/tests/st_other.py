@@ -149,6 +149,31 @@ def kdoc_docs(d):
     return zp, cp
 
 
+def kdoc_pdf(d):
+    """a real two-page PDF, written by hand (stdlib): p1 text in Helvetica, p2 no text layer (as
+    a scan reads), for `_pdf`'s one pdftotext call, form-feed page split and `.scan` tag"""
+    objs = ['<< /Type /Catalog /Pages 2 0 R >>', None, '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>']
+    kids = []
+    for lines in (['TPS9999 Boost Converter', 'The switch current limit is 2.5 A.'], []):
+        st = ('BT /F1 12 Tf 72 720 Td 14 TL ' + ' '.join(f'({t}) Tj T*' for t in lines) + ' ET') if lines else ''
+        objs.append(f'<< /Length {len(st)} >>\nstream\n{st}\nendstream')
+        objs.append('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >>'
+                    f' /Contents {len(objs)} 0 R >>')
+        kids.append(f'{len(objs)} 0 R')
+    objs[1] = f'<< /Type /Pages /Kids [{" ".join(kids)}] /Count {len(kids)} >>'
+    out, offs = '%PDF-1.4\n', []
+    for i, o in enumerate(objs, 1):
+        offs.append(len(out))
+        out += f'{i} 0 obj\n{o}\nendobj\n'
+    x = len(out)
+    out += (f'xref\n0 {len(objs) + 1}\n0000000000 65535 f \n' + ''.join(f'{o:010d} 00000 n \n' for o in offs)
+            + f'trailer\n<< /Size {len(objs) + 1} /Root 1 0 R >>\nstartxref\n{x}\n%%EOF\n')
+    p = os.path.join(d, 'kdocpdf', 'TPS9999.pdf')
+    os.makedirs(os.path.dirname(p), exist_ok=True)
+    open(p, 'w', encoding='latin-1').write(out)
+    return p
+
+
 def suite(tmp, mini):
     """Append this file's cases to CASES, yield while the runner runs them, then do the
     ad-hoc checks (the full run only: -k stops at the yield)."""
@@ -218,6 +243,14 @@ def suite(tmp, mini):
     CASES.append(("kdoc csv", ['kdoc.py', 'grep', 'EN', '-d', cp], 0, ["pinout_csv:p1:l4"]))
     CASES.append(("kdoc list", ['kdoc.py', 'list'], 0, ["gone_csv", "(source gone: `kdoc.py prune`)"]))
     CASES.append(("kdoc prune", ['kdoc.py', 'prune'], 0, ["removed gone_csv", "pruned 1 slot(s) whose source is gone"]))
+    import shutil
+    if shutil.which('pdftotext') and shutil.which('pdfinfo'):     # poppler: CI may lack it
+        rp = kdoc_pdf(tmp.name)
+        CASES.append(("kdoc index real pdf", ['kdoc.py', 'index', rp], 0, ["TPS9999", "2 pages  scan 1/2"]))
+        CASES.append(("kdoc grep real pdf", ['kdoc.py', 'grep', 'current limit', '-d', rp], 0,
+                      ["TPS9999:p1:l2", ">>current limit<<", "1 hits across 1 doc(s), 1 page(s)"]))
+    else:
+        print("skip  2 kdoc real-PDF case(s): poppler (pdftotext, pdfinfo) not installed")
     yield
     import argparse, contextlib, io, kcommon, kdoc, kfp_diff, kfp_vendor, kpcb_board                # the checks below call them in-process
     vl, vs = (open(os.path.join(vp, f)).read() for f in ('lib/ps.kicad_sym', 'v.kicad_sch'))

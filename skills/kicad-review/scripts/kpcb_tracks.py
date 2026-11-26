@@ -40,7 +40,7 @@ from kpcb_route import Grid, _netclass, piece_parts
 from kpcb_move import via_layers, is_arc
 from kpcb_edit import PcbText, tear_edits, num, prune, _rip_out
 from kpcb_copper import pad_dist
-from kpcb_smooth import (Index, Exact, chains, covered, leg_in_cap, cut_corner, skipped, in_pad, on_layer, octi, ang, turn,
+from kpcb_smooth import (Index, Exact, chains, covered, leg_in_cap, cap_rounds, cut_corner, skipped, in_pad, on_layer, octi, ang, turn,
                          q, RES, GRAZE, pad_ends, pad_joins, twins, no_project, cap_joints, close_joint)
 
 
@@ -228,7 +228,8 @@ def census_rows(b, skip, box=None, kinds=None):
         onp, onv = ix.on_pad(net, ly, n, w / 2), ix.on_via(net, ly, n, w / 2)
         th = turn(ang(far(t1, n), n), ang(n, far(t2, n)))
         k = None if th < 46 else '90' if th < 91 else 'acute'
-        if k and (covered(b, ix, net, ly, n, w, set(lst)) or leg_in_cap(t1, t2) or leg_in_cap(t2, t1)):
+        if k and (covered(b, ix, net, ly, n, w, set(lst)) or leg_in_cap(t1, t2) or leg_in_cap(t2, t1)
+                  or cap_rounds(t1, t2, th)):
             c['hidden ' + k] += 1
             k = None
         tee = any(i not in lst and pt_seg_dist(n, b.tracks[i]['a'], b.tracks[i]['b']) <= b.tracks[i]['w'] / 2
@@ -625,11 +626,13 @@ def c_tracks(b, a):
                 ix = ix or Index(b)
                 mv, why = close_joint(b, ix, *r[6])
                 why = 'fix: smooth --joints' if mv else why
-            elif k == 'pad':                         # the pass itself, once, on a fresh copy (it edits its board)
-                if taken is None:
-                    from kpcb_board import Board
+            elif k == 'pad':                         # the pass itself, once, on a copy: it edits its board's
+                if taken is None:                    # tracks (only those; a reload was 0.9 s)
+                    import copy
                     from kpcb_smooth import pass_pads
-                    taken = {(n, ly, q(E)) for n, ly, E, _c, _l in pass_pads(Board(b.path), skip, lambda *_a: True)}
+                    nb = copy.copy(b)
+                    nb.tracks = [dict(t) for t in b.tracks]
+                    taken = {(n, ly, q(E)) for n, ly, E, _c, _l in pass_pads(nb, skip, lambda *_a: True)}
                 if (r[1], r[2], q(r[3])) not in taken:
                     why = 'smooth --pads finds no clear way onto the centre: by hand'
             elif not why and r[6]:                   # a free corner: can the corner pass cut it?
