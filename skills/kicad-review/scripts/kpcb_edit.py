@@ -15,7 +15,7 @@ is asserted - and leaves the verdict to KiCad: `kdrc.py OUT --unconnected` on th
 import math, os, re, uuid
 from collections import defaultdict
 from kcommon import unesc_disp
-from kpcb_board import PolyIndex, _pidx, xf, pad_box, pt_seg_dist, seg_seg_dist
+from kpcb_board import Buckets, PolyIndex, _pidx, xf, pad_box, pt_seg_dist, seg_seg_dist
 from kpcb_copper import UF, _local, _reach, _around, pad_dist
 from kpcb_move import cu_layers, via_layers, drag_plan, drag_set
 
@@ -217,13 +217,7 @@ def c_renet(b, a):
          [('v', v) for v in b.vias if not v['net']]
     if not NL:
         print("no netless track or via - nothing to do"); return 0
-    grid = defaultdict(list)
-
-    def cells(bb, lys):
-        for ly in lys:
-            for cx in range(math.floor(bb[0] / C), math.floor(bb[2] / C) + 1):
-                for cy in range(math.floor(bb[1] / C), math.floor(bb[3] / C) + 1):
-                    yield (ly, cx, cy)
+    grid = Buckets(C)                                # per layer
 
     def geo(it):
         k, o = it
@@ -240,26 +234,25 @@ def c_renet(b, a):
            [('t', t) for t in b.tracks if t['net'] and t['w'] > 0] + [('v', v) for v in b.vias if v['net']] + NL
     for it in allc:
         bb, lys = geo(it)
-        for c in cells(bb, lys):
-            grid[c].append(it)
+        for ly in lys:
+            grid.put(it, bb, ly)
     U, contact = UF(), defaultdict(set)
     key = lambda it: (it[0], id(it[1]))                     # noqa: E731
     for it in NL:
         U.find(key(it))
         bb, lys = geo(it)
         seen = set()
-        for c in cells(bb, lys):
-            for o in grid.get(c, ()):
-                if o[1] is it[1] or key(o) in seen:
-                    continue
-                seen.add(key(o))
-                obb, olys = geo(o)
-                if not (lys & olys) or not _touch(it, o):
-                    continue
-                if o[1]['net']:
-                    contact[key(it)].add(o[1]['net'])
-                else:
-                    U.union(key(it), key(o))
+        for o in (o for ly in lys for o in grid.near(bb, ly, key=key)):
+            if o[1] is it[1] or key(o) in seen:
+                continue
+            seen.add(key(o))
+            obb, olys = geo(o)
+            if not (lys & olys) or not _touch(it, o):
+                continue
+            if o[1]['net']:
+                contact[key(it)].add(o[1]['net'])
+            else:
+                U.union(key(it), key(o))
     clusters = defaultdict(list)
     for it in NL:
         clusters[U.find(key(it))].append(it)
@@ -655,10 +648,6 @@ def prune(b, kill, absent=frozenset(), planes=True, test=(), memo=None):
             if p['net'] in nets:
                 pads[p['net']].append(('p', p))
     cu = b.copper
-    def cell_keys(bb):
-        for cx in range(math.floor(bb[0]), math.floor(bb[2]) + 1):
-            for cy in range(math.floor(bb[1]), math.floor(bb[3]) + 1):
-                yield cx, cy
     def box_of(x):
         k, o = x
         if k == 't':
@@ -679,17 +668,11 @@ def prune(b, kill, absent=frozenset(), planes=True, test=(), memo=None):
     first = {id(o): (k, o) for k, o in test}         # tested themselves, first round only: not their neighbours
     live = [('t', t) for t in b.tracks if t['net'] in nets and id(t) not in kill and t['w'] > 0] + \
            [('v', v) for v in b.vias if v['net'] in nets and id(v) not in kill]
-    G = defaultdict(list)                            # (net, cx, cy) -> items, 1 mm cells; built once,
+    G = Buckets(1)                                   # per net, 1 mm cells; built once,
     for x in live + [pp for n in nets for pp in pads[n]]:    # a round's kills skipped (pads never die)
-        for c in cell_keys(box_of(x)):
-            G[(x[1]['net'], *c)].append(x)
+        G.put(x, box_of(x), x[1]['net'])
     def near(net, bb):
-        seen = set()
-        for c in cell_keys(bb):
-            for x in G.get((net, *c), ()):
-                if id(x[1]) not in seen and id(x[1]) not in kill:
-                    seen.add(id(x[1]))
-                    yield x
+        return (x for x in G.near(bb, net, key=lambda x: id(x[1])) if id(x[1]) not in kill)
     while frontier or first:
         cand = {id(x[1]): x for f0 in frontier for x in near(f0[1]['net'], box_of(f0))     # touching it, not
                 if x[0] != 'p' and (on(x) & on(f0)) and _touch(x, f0)}                    # merely its box

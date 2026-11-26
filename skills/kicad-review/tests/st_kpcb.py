@@ -409,6 +409,12 @@ def suite(tmp, mini):
            clr('RF1', 'X', 'track', 'pad', 'F.Cu'), clr('A', 'X', 'via', 'pad', 'F.Cu'))
     check(got == (0.15, 0.1, 0.127, 0.3, 0.15),
                    f"typed DRU clearance (netclass, pad-track, outer track-track, RF class kept, via-pad) = {got}")
+    bk = kpcb_board.Buckets(2)
+    for name, bb in (('a', (0, 0, 3, 1)), ('b', (2.5, 0, 2.6, 0.1)), ('c', (-1, 3, -0.5, 3.5))):
+        bk.put(name, bb, 'F.Cu')
+    bk.put('d', (0, 0, 1, 1), 'B.Cu')
+    check(list(bk.near((0, 0, 4, 1), 'F.Cu')) == ['a', 'b'] and list(bk.near((-2, -2, 4, 4), 'F.Cu')) == ['c', 'a', 'b'],
+          "Buckets.near: each once, cells x-major, a cell in insertion order, per tag")
     rd = os.path.join(tmp.name, 'rules')                 # Board.rules: first .kicad_pro, dru comments dropped
     os.makedirs(rd)
     open(os.path.join(rd, 'r.kicad_pcb'), 'w').write(open(PCB).read())

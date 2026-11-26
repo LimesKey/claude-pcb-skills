@@ -51,7 +51,7 @@ ponytail: one Grid per chain at 0.02 mm, ~60 s on the reference board; a shared 
 import glob, math, os, re, shutil
 from operator import itemgetter
 from collections import defaultdict, Counter
-from kpcb_board import Board, PolyIndex, _pidx, bbox, pad_box, pt_seg_dist, seg_seg_dist, seg_box_dist
+from kpcb_board import Board, Buckets, PolyIndex, _pidx, bbox, pad_box, pt_seg_dist, seg_seg_dist, seg_box_dist
 from kpcb_copper import _local, pad_dist, pad_within
 from kpcb_route import Grid, _legs, _pad_shape, _planes, _kos, _hole_clr
 from kpcb_move import via_layers, is_arc
@@ -626,11 +626,9 @@ def _reach(b, ly):
         if ly in via_layers(v, b.copper):
             r = v['size'] / 2
             items.append(((v['x'] - r, v['y'] - r, v['x'] + r, v['y'] + r), ('v', v['net'], v['x'], v['y'], v['size'])))
-    cells = defaultdict(list)
+    cells = Buckets(5)
     for bb, key in items:
-        for cx in range(math.floor(bb[0] / 5), math.floor(bb[2] / 5) + 1):
-            for cy in range(math.floor(bb[1] / 5), math.floor(bb[3] / 5) + 1):
-                cells[(cx, cy)].append((bb, key))
+        cells.put((bb, key), bb)
     return cells
 
 
@@ -639,11 +637,7 @@ def _near(cells, pts, m=2.6):
     out to its clearance + half-width, Exact looks 1 mm further; 2.6 covers clearances to 1 mm"""
     xs, ys = [p[0] for p in pts], [p[1] for p in pts]
     B = (min(xs) - 0.6 - m, min(ys) - 0.6 - m, max(xs) + 0.6 + m, max(ys) + 0.6 + m)
-    out = set()
-    for cx in range(math.floor(B[0] / 5), math.floor(B[2] / 5) + 1):
-        for cy in range(math.floor(B[1] / 5), math.floor(B[3] / 5) + 1):
-            out.update(k for bb, k in cells.get((cx, cy), ()) if bb[2] >= B[0] and bb[0] <= B[2] and bb[3] >= B[1] and bb[1] <= B[3])
-    return frozenset(out)
+    return frozenset(k for bb, k in cells.near(B) if bb[2] >= B[0] and bb[0] <= B[2] and bb[3] >= B[1] and bb[1] <= B[3])
 
 
 def pass_chains(b, skip, sel):

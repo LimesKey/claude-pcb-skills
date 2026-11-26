@@ -32,7 +32,7 @@ the same footprint and rotation in a row take the same side where they can.
 import argparse, math, re
 from collections import Counter, defaultdict
 from kcommon import natkey, trunc, print_findings, prefix
-from kpcb_board import bbox, box_dist, grow, hit, inside, overlap_area, pad_box, seg_box_dist
+from kpcb_board import Buckets, bbox, box_dist, grow, hit, inside, overlap_area, pad_box, seg_box_dist
 
 RULES = {'SILK-PAD': 'silk over exposed pad copper: clipped at the mask opening',
          'SILK-UNDER': "silk under a placed part's body: hidden once assembled",
@@ -108,7 +108,7 @@ class Silk:
 
     def __init__(self, b):
         self.b, self.clr = b, limits(b)[2]
-        self.grid = defaultdict(list)
+        self.grid = Buckets(2)
         P = [g for g in b.placed() if g.pads]
         for g in P:
             for p in g.pads:
@@ -136,9 +136,7 @@ class Silk:
             self.add_text(x, None)
 
     def put(self, item, bb):
-        for cx in range(math.floor(bb[0] / 2), math.floor(bb[2] / 2) + 1):
-            for cy in range(math.floor(bb[1] / 2), math.floor(bb[3] / 2) + 1):
-                self.grid[(cx, cy)].append((item, bb))
+        self.grid.put((item, bb), bb)
 
     def add_text(self, x, owner):
         side = x['layer'][0] == 'B'
@@ -147,17 +145,11 @@ class Silk:
 
     def drop_text(self, x):
         self.texts.pop(id(x), None)
-        for cell in self.grid.values():
+        for cell in self.grid.g.values():
             cell[:] = [it for it in cell if not (it[0][0] == 'text' and it[0][3] is x)]
 
     def near(self, bb):
-        seen = set()
-        for cx in range(math.floor(bb[0] / 2), math.floor(bb[2] / 2) + 1):
-            for cy in range(math.floor(bb[1] / 2), math.floor(bb[3] / 2) + 1):
-                for item, ib in self.grid.get((cx, cy), ()):
-                    if id(item) not in seen:
-                        seen.add(id(item))
-                        yield item, ib
+        return self.grid.near(bb, key=lambda x: id(x[0]))
 
     def hits(self, box, side, me=None, owner=None):
         """[(rule, message, other ref)] for a text box on a side: what it runs over. A text

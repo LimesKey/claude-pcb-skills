@@ -6,7 +6,7 @@ Drag (D) model, shared with the `move` writer; `--no-drag` is KiCad's Move (M)."
 import math, re
 from collections import defaultdict
 from kcommon import unesc_disp
-from kpcb_board import bbox, grow, hit, pad_box, poly_dist, pt_box_dist, pt_seg_dist, seg_box_dist, seg_seg_dist, xf
+from kpcb_board import Buckets, bbox, grow, hit, pad_box, poly_dist, pt_box_dist, pt_seg_dist, seg_box_dist, seg_seg_dist, xf
 from kpcb_copper import _local, pad_dist
 from kpcb_zones import _clearance_fn
 
@@ -147,11 +147,8 @@ class World:
         self.parts = [g for g in b.placed() if g not in movers and not b.is_hole(g)]
         # 2 mm buckets, so a hit test reads only the copper around it
         self.vl = {id(v): via_layers(v, cu) for v in self.vias}
-        self.grid = {}
-        def put(kind, obj, bb):
-            for cx in range(math.floor(bb[0] / 2), math.floor(bb[2] / 2) + 1):
-                for cy in range(math.floor(bb[1] / 2), math.floor(bb[3] / 2) + 1):
-                    self.grid.setdefault((cx, cy), []).append((kind, obj))
+        self.grid = Buckets(2)
+        put = lambda kind, obj, bb: self.grid.put((kind, obj), bb)    # noqa: E731
         for pd in self.pads:
             put('p', pd, pd[4])
         for t in self.tracks:
@@ -162,13 +159,9 @@ class World:
 
     def near(self, zone):
         """the pads, tracks and vias whose bucket meets the zone box, each once"""
-        seen, out = set(), {'p': [], 't': [], 'v': []}
-        for cx in range(math.floor(zone[0] / 2), math.floor(zone[2] / 2) + 1):
-            for cy in range(math.floor(zone[1] / 2), math.floor(zone[3] / 2) + 1):
-                for kind, obj in self.grid.get((cx, cy), ()):
-                    if id(obj) not in seen:
-                        seen.add(id(obj))
-                        out[kind].append(obj)
+        out = {'p': [], 't': [], 'v': []}
+        for kind, obj in self.grid.near(zone, key=lambda x: id(x[1])):
+            out[kind].append(obj)
         return out
 
     def hits(self, items, outline=None, back=False):

@@ -1,8 +1,9 @@
 """kpcb.py `viapad`: vias dropped into SMD pads."""
-import os, re, json
+import os, re, json, math
 from collections import defaultdict
 from kcommon import natkey, trunc, GND_RE, rail_voltage
 from kpcb_copper import pad_dist
+from kpcb_board import Buckets
 
 def drill_depth(pad, via):
     """how far (mm) the via's DRILL reaches into the pad's mask opening, > 0 when it does: the
@@ -47,9 +48,9 @@ def c_viapad(b, a):
         return min(vi) <= order[layer] <= max(vi)
 
     # bin vias into 1 mm cells so this isn't pads x vias
-    grid = defaultdict(list)
+    grid = Buckets(1)
     for vi, v in enumerate(b.vias):
-        grid[(int(v['x']), int(v['y']))].append(vi)
+        grid.put(vi, (v['x'], v['y'], v['x'], v['y']))
 
     # ref -> pad_num -> {'pad': pad, 'vias': {via_index: mismatch}}. Keying vias by
     # index dedupes a via that a split sub-pad (same number) covers twice.
@@ -60,13 +61,8 @@ def c_viapad(b, a):
                 continue  # numberless SMD slivers (paste/mechanical) aren't via-in-pad targets
             play = next((l for l in pad['layers'] if l.endswith('.Cu')), None)
             reach = int(pad['w'] / 2 + 1)
-            seen = set()
-            for cx in range(int(pad['x']) - reach, int(pad['x']) + reach + 1):
-                for cy in range(int(pad['y']) - reach, int(pad['y']) + reach + 1):
-                    for vi in grid.get((cx, cy), ()):
-                        if vi in seen:
-                            continue
-                        seen.add(vi)
+            x0, y0 = math.floor(pad['x']), math.floor(pad['y'])
+            for vi in grid.near((x0 - reach, y0 - reach, x0 + reach, y0 + reach), key=int):
                         v = b.vias[vi]
                         dep = drill_depth(pad, v) if spans(v, play) else 0
                         if dep <= 0:

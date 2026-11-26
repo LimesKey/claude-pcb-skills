@@ -243,6 +243,33 @@ def poly_dist(A, B):
             return 0.0, True
     return d, False
 
+class Buckets:
+    """a 2-D bucket index: put(obj, box, *tag) files obj in every `cell`-mm cell the box meets,
+    under tag (a layer, a net, or none); near(box, *tag) yields each object filed in the cells the
+    box meets once (dedupe key: id, or `key`), cells x-major then y, a cell in insertion order"""
+    def __init__(self, cell):
+        self.cell, self.g = cell, defaultdict(list)
+
+    def cells(self, bb):
+        c = self.cell
+        for cx in range(math.floor(bb[0] / c), math.floor(bb[2] / c) + 1):
+            for cy in range(math.floor(bb[1] / c), math.floor(bb[3] / c) + 1):
+                yield cx, cy
+
+    def put(self, obj, bb, *tag):
+        for c in self.cells(bb):
+            self.g[(*tag, *c)].append(obj)
+
+    def near(self, bb, *tag, key=id):
+        seen, g = set(), self.g
+        for c in self.cells(bb):
+            for x in g.get((*tag, *c), ()):
+                k = key(x)
+                if k not in seen:
+                    seen.add(k)
+                    yield x
+
+
 class PolyIndex:
     """Even-odd point-in-polygon on a big ring (a zone fill has 10k+ points) in
     O(edges in one 0.5 mm row): an edge a horizontal ray at y can cross must

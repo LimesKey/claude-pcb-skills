@@ -3,6 +3,13 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kpcb_board.Buckets - 7 hand-rolled 2-D bucket indexes, each with its own cell size, box-to-cells
+      loop and dedupe. Done: `Buckets(cell)`: `put(obj, box, *tag)` (tag: a layer or net), `near(box, *tag,
+      key=id)` yielding each object once, cells x-major then y, a cell in insertion order (each copy's order, so
+      output is byte-identical); used by kpcb_copper.Copper, kpcb_move.World, kpcb_silk.Silk, kpcb_edit.prune
+      and renet, kpcb_smooth._reach/_near and kpcb_viapad (its int() cells became floor(): the same for board
+      coordinates >= 0). Goldens 39/39 unchanged, loops/tidy/silk timings unchanged. Selftest: near's order,
+      dedupe and tag. 2026-11-26.
 - [x] kicad-review/kcommon.project_sheets (+SchInfo, ksheet, kfp_vendor) - "which sheets are the design" had four
       answers; SchInfo took every *.kicad_sch in the netlist's directory (no subfolders), kfp_vendor walked
       Sheetfile links (subfolders followed). Done: kfp_vendor's walker is `kcommon.project_sheets(d)` (root +

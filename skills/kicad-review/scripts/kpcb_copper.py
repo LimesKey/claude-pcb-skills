@@ -5,7 +5,7 @@ between two pads with the pours as ideal conductors (their necks are not
 measured, and the output says so)."""
 import math
 from collections import defaultdict, Counter
-from kpcb_board import _pidx, pt_seg_dist, xf, bbox, RHO_CU
+from kpcb_board import Buckets, _pidx, pt_seg_dist, xf, bbox, RHO_CU
 
 CELL = 1.0                                   # spatial hash, mm
 
@@ -142,12 +142,8 @@ class Copper:
         self.tracks = [t for t in b.tracks if t['net'] == net and t['w'] > 0]
         self.fills = [fl for fl in b.fills if fl['net'] == net]
         U = self.ideal = UF()
-        grid = defaultdict(list)                     # (layer, cx, cy) -> items
-
-        def cells(bb):
-            for cx in range(math.floor(bb[0] / CELL), math.floor(bb[2] / CELL) + 1):
-                for cy in range(math.floor(bb[1] / CELL), math.floor(bb[3] / CELL) + 1):
-                    yield cx, cy
+        B = Buckets(CELL)                            # per layer
+        grid = B.g
 
         def near(ly, pt):
             return grid.get((ly, math.floor(pt[0] / CELL), math.floor(pt[1] / CELL)), ())
@@ -161,8 +157,7 @@ class Copper:
             self.play.append(lys)
             r = math.hypot(hx, hy)
             for ly in lys:
-                for c in cells((p['x'] - r, p['y'] - r, p['x'] + r, p['y'] + r)):
-                    grid[(ly, *c)].append(('pad', i))
+                B.put(('pad', i), (p['x'] - r, p['y'] - r, p['x'] + r, p['y'] + r), ly)
             U.find(('pad', i))
         self.vlay = []
         used = set(cu) | {t['layer'] for t in self.tracks} | {fl['layer'] for fl in self.fills}
@@ -173,16 +168,14 @@ class Copper:
             self.vlay.append(lys)
             r = (v['size'] or v['drill'] + .3) / 2
             for ly in lys:
-                for c in cells((v['x'] - r, v['y'] - r, v['x'] + r, v['y'] + r)):
-                    grid[(ly, *c)].append(('via', k))
+                B.put(('via', k), (v['x'] - r, v['y'] - r, v['x'] + r, v['y'] + r), ly)
             U.find(('via', k))
             for ly in lys:
                 U.find(('vl', k, ly))
         for n, t in enumerate(self.tracks):
             hw = t['w'] / 2
             (ax, ay), (bx, by) = t['a'], t['b']
-            for c in cells((min(ax, bx) - hw, min(ay, by) - hw, max(ax, bx) + hw, max(ay, by) + hw)):
-                grid[(t['layer'], *c)].append(('trk', n))
+            B.put(('trk', n), (min(ax, bx) - hw, min(ay, by) - hw, max(ax, bx) + hw, max(ay, by) + hw), t['layer'])
 
         def ekey(t, e):
             return ('pt', t['layer'], *_q(e))
@@ -229,8 +222,8 @@ class Copper:
         for n, t in enumerate(self.tracks):
             (ax, ay), (bx, by) = t['a'], t['b']
             hw = t['w'] / 2
-            near_trk = {i for c in cells((min(ax, bx) - hw, min(ay, by) - hw, max(ax, bx) + hw, max(ay, by) + hw))
-                        for kind, i in grid.get((t['layer'], *c), ()) if kind == 'trk' and i > n}
+            near_trk = {i for kind, i in B.near((min(ax, bx) - hw, min(ay, by) - hw, max(ax, bx) + hw, max(ay, by) + hw),
+                                                t['layer'], key=tuple) if kind == 'trk' and i > n}
             for i in sorted(near_trk):
                 o = self.tracks[i]
                 (cx, cy), (dx, dy) = o['a'], o['b']
@@ -258,7 +251,7 @@ class Copper:
             rr = math.hypot(*pad['_reach']) if pad else 0.0
             for ly in lys:                           # joining as we go made the outcome
                 node = nodef(ly)                     # depend on set order (hash seed)
-                cand = {x_ for c in cells((x - rr, y - rr, x + rr, y + rr)) for x_ in grid.get((ly, *c), ())} \
+                cand = set(B.near((x - rr, y - rr, x + rr, y + rr), ly, key=tuple)) \
                     if pad else set(near(ly, (x, y)))
                 for kind, i in cand:
                     if kind != 'trk':
