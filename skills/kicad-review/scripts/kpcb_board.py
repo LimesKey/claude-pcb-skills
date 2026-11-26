@@ -676,13 +676,16 @@ class Board:
 
     @cached_property
     def rules(self):
-        """the project's rules beside the board, read once for every reader: the first
-        .kicad_pro (sorted) as design (board.design_settings.rules), classes {name: class},
+        """the project's rules beside the board, read once for every reader: the board's own
+        <stem>.kicad_pro (what kicad-cli's DRC reads), else the first sorted one, as design (board.design_settings.rules), classes {name: class},
         assign (netclass_assignments), patterns [(pattern, class)]; every .kicad_dru (sorted,
-        comments dropped) as dru [(layer, {constraint: min mm}, condition)] in file order"""
+        comments dropped) as dru [(layer, {constraint: min mm}, condition)] in file order, with
+        dru_text [(name, [each constraint as written])] beside it; files: the files read"""
         from types import SimpleNamespace
         d, pro = os.path.dirname(os.path.abspath(self.path)), {}
-        for p in sorted(glob.glob(os.path.join(d, '*.kicad_pro')))[:1]:
+        own = os.path.splitext(os.path.abspath(self.path))[0] + '.kicad_pro'
+        prof = [own] if os.path.exists(own) else sorted(glob.glob(os.path.join(d, '*.kicad_pro')))[:1]
+        for p in prof:
             try:
                 with open(p) as fh:
                     pro = json.load(fh)
@@ -690,12 +693,15 @@ class Board:
                 pass
         pro = pro if isinstance(pro, dict) else {}
         ns = pro.get('net_settings') or {}
-        dru = []
+        dru, text, files = [], [], prof if pro else []
         for p in sorted(glob.glob(os.path.join(d, '*.kicad_dru'))):
+            files.append(p)
             txt = re.sub(r'(?m)^\s*#.*$', '', open(p, encoding='utf-8', errors='replace').read())
             for blk in re.split(r'\(rule\s+', txt)[1:]:
                 cond = re.search(r'\(condition\s+"((?:\\.|[^"\\])*)"\)', blk)
                 lay = re.search(r'\(layer\s+"?([\w.?]+)"?\)', blk)
+                text.append(((re.match(r'"((?:\\.|[^"\\])*)"|\S+', blk) or [''])[0].strip('"'),
+                             re.findall(r'\(constraint\s+((?:[^()]|\([^()]*\))*)\)', blk)))
                 dru.append((lay[1] if lay else '', {k: float(v) for k, v in re.findall(
                     r'\(constraint\s+(\w+)\s+\(min\s+([\d.]+)\s*mm\)', blk)}, cond[1] if cond else ''))
         return SimpleNamespace(
@@ -703,7 +709,7 @@ class Board:
             classes={c['name']: c for c in ns.get('classes') or [] if isinstance(c, dict) and 'name' in c},
             assign=ns.get('netclass_assignments') or {},
             patterns=[(p.get('pattern', ''), p.get('netclass', '')) for p in ns.get('netclass_patterns') or []],
-            dru=dru)
+            dru=dru, dru_text=text, files=files)
 
     def design_min(self, key, floor=0.0):
         """a .kicad_pro design-rules minimum (mm) as a float, floor when unset or unreadable"""

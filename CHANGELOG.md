@@ -3,6 +3,25 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kcommon.parse_args - CI (Python 3.12) failed `kpcb reroute failed`: exit 2, "argument --avoid:
+      expected one argument". Python 3.12's argparse takes a dash-led value only when it is a plain number
+      (`-50`), so `--avoid -50,-50,100,100` read as an unknown option; 3.13+ accepts any dash + digit, so the
+      suite passed locally (3.14). Done: parse_args glues a dash-led number list to the long option before it
+      (`--avoid=-50,..`, so its `type` sees it as is) and shields one in a positional (`where -5,3`), on every
+      Python. Measured: the full kicad-review suite under 3.12 (uv), 392/392. Selftest: the case itself, on CI's
+      3.12. 2026-11-26.
+- [x] kicad-review/kpcb rules - no command printed the project's rules: 5 sessions in the last 30 days read
+      `.kicad_pro` `net_settings` by hand (7 inline scripts: class widths, clearances, vias, patterns) and 4
+      grepped `.kicad_dru`. Done: `kpcb.py FILE rules` prints the design minimums, each netclass (a field left
+      unset shows Default's in parentheses) with its nets, and every `.kicad_dru` rule as written; `rules NET`
+      gives the net's class, the pattern or assignment that set it, and the dru rules naming the net or its
+      class. Board.rules keeps each rule's name and constraint text (`dru_text`) and reads the board's own
+      `<stem>.kicad_pro` first (kicad-cli's choice; was the first sorted one). Reference board: 0.56 s, 4 kB.
+      Selftest: `kpcb rules`, `kpcb rules NET`. 2026-11-26.
+- [x] kicad-review/kdrc --box - "what does DRC say around here" meant parsing a `--report` JSON by item position
+      (3 sessions, latest 2026-11-26; per-rule caps hid hits otherwise). Done: `kdrc.py FILE drc --box
+      X0,Y0,X1,Y1` keeps the DRC findings with an item inside the box, before the cap, and names the box in the
+      header. Selftest: `kdrc --selftest` in_box check. 2026-11-26.
 - [x] kicad-review/kpcb edit textsize keeps a TrueType cache - `textsize UUID` dropped a TrueType text's
       render_cache, so `silk` fell back to the estimated box and reported pad hits KiCad's render shows clear;
       `textsize REF`, `ref REF` and `refdes` left a TrueType designator's cache stale. Done: `textsize`/`valuesize` scale the

@@ -64,7 +64,7 @@ import sys, os, re, json, glob, tempfile, subprocess
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
     from kcommon import (print_findings, suppressed, trunc, kicad_cli, project_cfg,
-                         top_level_sheets, project_root, sch_files, parse_args, doctor, rules_warning)
+                         top_level_sheets, project_root, sch_files, parse_args, doctor, rules_warning, box_arg)
 except ImportError:                                     # pragma: no cover
     print("kdrc.py needs kcommon.py beside it (shared finding formatter)",
           file=sys.stderr)
@@ -178,6 +178,14 @@ def vio_finding(v, prefix):
             'items': [{'desc': it.get('description', ''),
                        'pos': [it['pos']['x'], it['pos']['y']] if 'x' in (it.get('pos') or {}) else None}
                       for it in items]}
+
+
+def in_box(F, box):
+    """--box X0,Y0,X1,Y1: the DRC findings with an item inside the box (board mm), before the
+    per-rule cap: a hand filter of the --report JSON by position, gone. ERC is sheet coordinates."""
+    x0, y0, x1, y1 = box
+    return [f for f in F if f['rule'].startswith('DRC') and any(
+        it['pos'] and x0 <= it['pos'][0] <= x1 and y0 <= it['pos'][1] <= y1 for it in f.get('items') or [])]
 
 
 def run_cli(args, tag):
@@ -588,6 +596,9 @@ def _selftest():
     checks.append((_vkey(tx('v2 2026-10-18')) == _vkey(tx('v2 2026-10-19'))
                    and _ikey({'description': 'Track [A] on F.Cu', 'uuid': 'x'}) == 'Track [A] on F.Cu',
                    "baseline: a text item's changed text made it a new violation (key it by uuid)"))
+    bx = [vio_finding({'type': 'clearance', 'description': 'd', 'items': [{'description': 'Via', 'pos': {'x': x, 'y': 5}}]},
+                      'DRC') for x in (5, 50)] + [{'rule': 'ERC:X', 'items': []}]
+    checks.append((in_box(bx, (0, 0, 10, 10)) == bx[:1], "--box: kept a finding outside the box, or an ERC one"))
     td = tempfile.mkdtemp()
     try:
         json.dump({'net_settings': {'classes': [{'name': 'Default'}]}}, open(os.path.join(td, 'p.kicad_pro'), 'w'))
@@ -862,6 +873,8 @@ def main():
     ap.add_argument('--max', type=int, default=None, help='cap lines per rule (default 25)')
     ap.add_argument('--only', default='', help='comma list of RULE names to keep')
     ap.add_argument('--skip', default='', help='comma list of RULE names to drop')
+    ap.add_argument('--box', default='', type=box_arg(), metavar='X0,Y0,X1,Y1',
+                    help='only DRC findings with an item inside this box, board mm (ERC dropped)')
     ap.add_argument('--all', action='store_true',
                     help='every severity, and the .kicad_pro\'s ignored rules too (run on a temp copy '
                          'with them set to warning: --severity-all alone never runs an ignored check)')
@@ -948,6 +961,8 @@ def main():
         F = [f for f in F if f['rule'] in only]
     if skip:
         F = [f for f in F if f['rule'] not in skip]
+    if a.box:
+        F = in_box(F, tuple(map(float, a.box.split(','))))
     F, supp, forced = apply_suppress(F, a.suppress)
 
     if a.json:
@@ -963,6 +978,8 @@ def main():
     if roots:
         hdr += (f"\nERC roots ({len(roots)}): " + ', '.join(os.path.basename(r) for r in roots)
                 + ("  (one report covers every top-level sheet)" if whole else ""))
+    if a.box:
+        hdr += f"\n--box {a.box}: only DRC findings with an item inside it"
     if getattr(a, 'base_note', ''):
         hdr += '\nDRC ' + a.base_note
     if getattr(a, 'cap_note', ''):

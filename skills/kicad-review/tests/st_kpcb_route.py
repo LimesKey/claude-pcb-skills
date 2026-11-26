@@ -501,6 +501,16 @@ def suite(tmp, mini):
     CASES.append(("kpcb kind arg", ['kpcb.py', PCB, 'tracks', '--kind', 'cleanup,dedend'], 2, ["argument --kind: 'dedend': no such kind"]))
     CASES.append(("kpcb vias",    ['kpcb.py', PCB, 'vias'],                   0,
                   ["2 via(s), 2 net(s)", "0.45  0.20      1  through  +3V3 1"]))
+    rl = _tab_board(_typed_dir(T('rulecmd')), 't.kicad_pcb', 10, 6, _tab_fp('TP1', 2, 3, [('1', 0, 0, .6, .6, 'RF_A')])
+                    + _tab_fp('TP2', 8, 3, [('1', 0, 0, .6, .6, 'B')]))
+    CASES.append(("kpcb rules", ['kpcb.py', rl, 'rules'], 0,
+                  ["rules: t.kicad_pro, t.kicad_dru", "minimums: copper_edge_clearance 0.2  silk_clearance 0.15",
+                   "  RFC              (0.15)    0.3 (0.6)/(0.3)           -  1: RF_A",
+                   "  Default            0.15   0.15     0.6/0.3           -  1",
+                   "  Min Trace Spacing (outer)      clearance (min 0.127mm)  layer outer  if A.Type == 'Track' && B.Type == 'Track'"]))
+    CASES.append(("kpcb rules NET", ['kpcb.py', rl, 'rules', 'RF_A', 'B'], 0,
+                  ["RF_A: netclass RFC (pattern 'RF*')  track (0.15)  clearance 0.3  via (0.6)/(0.3)",
+                   "B: netclass Default (no pattern)", "dru  no rule names this net or its class"]))
     jb = jog_board(tmp.name)
     CASES.append(("kpcb tracks jog", ['kpcb.py', jb, 'tracks', '--kind', 'jog'], 0,
                   ["lane jogs 0.05-1 mm       1 visible", "A: via GND free 5.00,6.00 (--jogs moves it)", "B: track Q"]))

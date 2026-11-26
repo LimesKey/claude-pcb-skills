@@ -44,6 +44,8 @@ Commands:
   kpcb.py FILE ampacity [NET..] [--amps A]   IPC-2221 current vs the routed copper + vias;
                                       `--from PAD --to PAD`: the path's current split (--fills)
   kpcb.py FILE vias                   via sizes, drills, aspect ratio, per net
+  kpcb.py FILE rules [NET..]          the project's rules: .kicad_pro minimums, netclasses
+                                      (+ their nets), .kicad_dru rules; NET: its class and rules
   kpcb.py FILE copper X0,Y0,X1,Y1     tracks, vias, zones in a box (or X,Y -r R), with the
                                       uuids `edit` takes (--net, --layers)
   kpcb.py FILE height [REF...]        3D model height per part + the Z stack (cell +
@@ -166,7 +168,7 @@ accurate even when not every item is printed.
 
 Exit codes: 0 clean, 1 not found, 2 `check` found an ERROR, 3 bad file.
 """
-import sys, os, re, json, math, glob, argparse, signal, time
+import sys, os, re, json, math, glob, argparse, signal, time, fnmatch
 from collections import Counter, defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -966,6 +968,72 @@ def c_vias(b, a):
               + ', '.join(f"{n or '(no net)'} {c}" for n, c in top) + (f", +{more} more net(s)" if more > 0 else ''))
     return 0
 
+def c_rules(b, a):
+    """`rules [NET..]`: the project's design rules in one place - the .kicad_pro minimums,
+    each netclass (a field it leaves unset shows Default's, in parentheses) with its nets,
+    and every .kicad_dru rule as written; NET: its class, how it got it, its widths and
+    clearances, and the .kicad_dru rules whose condition names the net or its class."""
+    R = b.rules
+    if not R.files:
+        print("no .kicad_pro or .kicad_dru beside the board: KiCad's defaults apply"); return 1
+    cls = R.classes
+    dflt = cls.get('Default') or {}
+    def v(c, k):
+        x, own = c.get(k), k in c
+        x = x if own else dflt.get(k)
+        return '-' if x is None else f"{x:g}" if own else f"({x:g})"
+    def via(c):
+        return f"{v(c, 'via_diameter')}/{v(c, 'via_drill')}"
+    def dp(c):                        # Default's pair geometry on every class read as noise
+        return f"{v(c, 'diff_pair_width')}/{v(c, 'diff_pair_gap')}" if 'diff_pair_width' in c else '-'
+    nets = sorted(set(b.nets) | {t['net'] for t in b.tracks if t['net']}, key=natkey)
+    if a.args:
+        rc = 0
+        for name in a.args:
+            net, cand = _resolve_net(b, name)
+            if not net:
+                print(f"{name}: no such net" + (f"; did you mean {' | '.join(cand)}" if cand else '')); rc = 1; continue
+            k = b.netclass(net) or 'Default'
+            how = ('assigned' if net in R.assign else
+                   next((f"pattern '{p}'" for p, c in R.patterns if c == k and fnmatch.fnmatchcase(net, p)), 'no pattern'))
+            c = cls.get(k) or {}
+            print(f"{net}: netclass {k} ({how})  track {v(c, 'track_width')}  clearance {v(c, 'clearance')}  "
+                  f"via {via(c)}  diff pair {dp(c)}")
+            names = {net, net.rsplit('/', 1)[-1]}
+            hits = [(n, t, cond) for (n, t), (_l, _c, cond) in zip(R.dru_text, R.dru)
+                    if any(f"'{x}'" in cond for x in names) or f"NetClass == '{k}'" in cond]
+            for n, t, cond in hits:
+                print(f"  dru  {n}: {'; '.join(t)}  if {cond}")
+            if not hits:
+                print("  dru  no rule names this net or its class (the type rules `rules` lists still apply)")
+        return rc
+    print("rules: " + ', '.join(os.path.basename(f) for f in R.files))
+    D = R.design
+    mins = [(k, D.get(k)) for k in ('min_clearance', 'min_track_width', 'min_connection', 'min_via_diameter',
+                                     'min_via_annular_width', 'min_through_hole_diameter', 'min_hole_clearance',
+                                     'min_hole_to_hole', 'min_copper_edge_clearance', 'min_silk_clearance',
+                                     'min_text_height', 'min_text_thickness') if D.get(k) is not None]
+    if mins:
+        print("minimums: " + '  '.join(f"{k[4:] if k.startswith('min_') else k} {x:g}" for k, x in mins))
+    if cls:
+        by = defaultdict(list)
+        for n in nets:
+            by[b.netclass(n) or 'Default'].append(n)
+        print(f"netclasses ({len(cls)}; (x) = unset, Default's)\n  {'class':<16} {'track':>6} {'clear':>6} "
+              f"{'via':>11} {'diff pair':>11}  nets")
+        for k, c in sorted(cls.items(), key=lambda kc: (kc[1].get('priority', 0) if kc[0] != 'Default' else 1 << 40, kc[0])):
+            ns = by.get(k, [])
+            print(f"  {k:<16} {v(c, 'track_width'):>6} {v(c, 'clearance'):>6} {via(c):>11} {dp(c):>11}  {len(ns)}"
+                  + (': ' + ', '.join(unesc_disp(n.rsplit('/', 1)[-1]) for n in ns[:a.max])
+                     + (f" +{len(ns) - a.max}" if len(ns) > a.max else '') if ns and k != 'Default' else ''))
+        if R.patterns:
+            print(f"  {len(R.patterns)} netclass pattern(s), {len(R.assign)} direct assignment(s): `rules NET` says which hit")
+    if R.dru:
+        print(f".kicad_dru: {len(R.dru)} rule(s) (for one item pair the last matching rule wins)")
+        for (n, t), (lay, _c, cond) in zip(R.dru_text, R.dru):
+            print(f"  {n:<30} {'; '.join(t) or '-'}" + (f"  layer {lay}" if lay else '') + (f"  if {cond}" if cond else ''))
+    return 0
+
 CMDS = {'summary': c_summary, 'check': c_check, 'where': c_where, 'map': c_map,
         'sheet': c_sheet, 'unplaced': c_unplaced, 'ic': c_ic, 'span': c_span,
         'zones': c_zones, 'sync': c_sync, 'review': c_review, 'ampacity': c_ampacity,
@@ -977,7 +1045,7 @@ CMDS = {'summary': c_summary, 'check': c_check, 'where': c_where, 'map': c_map,
         'vscan': c_vscan, 'smooth': c_smooth, 'tracks': c_tracks, 'widen': c_widen, 'loops': c_loops,
         'diff': c_diff, 'refdes': c_refdes, 'pinlabels': c_pinlabels, 'label': c_label,
         'congest': c_congest, 'fanout': c_fanout, 'reroute': c_reroute, 'refslots': c_refslots,
-        'zoneshape': c_zoneshape, 'zonemerge': c_zonemerge}
+        'zoneshape': c_zoneshape, 'zonemerge': c_zonemerge, 'rules': c_rules}
 
 LIMITS = (('edge', 0.5, 'courtyard-to-board-edge minimum, mm'),
           ('hole', 1.5, 'keepout beyond a mounting hole pad radius, mm'),

@@ -80,7 +80,7 @@ scrambled. The plot only tells you which sheet a symbol lives on.
 | where does X connect / is X right | `knet.py FILE around X` - pins, types, nets, position, every part one hop away |
 | where is X, is there room | `kpcb.py FILE where REF` or `where 130,60 -r 10` (`--origin grid` = the numbers KiCad's Properties dialog shows) |
 | where do these caps/inductor go | `kpcb.py FILE ic U13` - positions, rotations, the rule behind each, and a picture |
-| does the board pass real DRC + ERC | `kdrc.py FILE.kicad_pcb` - KiCad's own checks, every root, folded like `check`; flags a STALE saved zone fill (what gerbers export) |
+| does the board pass real DRC + ERC | `kdrc.py FILE.kicad_pcb` - KiCad's own checks, every root, folded like `check`; flags a STALE saved zone fill (what gerbers export); `drc --box X0,Y0,X1,Y1`: only what lies in a region |
 | which PWR_FLAGs are needed / redundant | `kdrc.py FILE.kicad_pcb flags` - each flag's net, and whether ERC fails without it |
 | does the SMA/USB-C sit on the edge its footprint expects / how far is a side-entry housing set back | `kpcb.py FILE check --only EDGEREF` |
 | is each TVS/ESD clamp at the connector it protects | `kpcb.py FILE check --only ESD` - connector pin to the nearest clamp on its net, and any IC a strike reaches first |
@@ -97,6 +97,7 @@ scrambled. The plot only tells you which sheet a symbol lives on.
 | where a copper layer still has room for routes | `kpcb.py FILE map --layers In2.Cu` - track/pad/via density, pour-only and free cells |
 | where does this unplaced part fit / would a placed one sit better | `kpcb.py FILE place REF [--near IC]` - a placed part's `now` row first; both sides, 4 rotations, ranked by ratsnest, copper-checked, every pad able to escape (a via spot or its net's copper within 1.5 mm); `--shove` nudges one small part aside when nothing fits; `-o OUT` writes it |
 | route a net / everything left | `kpcb.py FILE route NET... \| --pending -o OUT` - grid A* through clearance-inflated copper, vias, all layers; necks down out of fine-pitch pads; rips up its own routes that box a pin in (`--rip-board N`: small nets already on the board too); a FAILED link names what boxes it in; `--pair` runs a diff-pair leg alongside its routed mate; `--avoid X0,Y0,X1,Y1[;..]` keeps this run out of boxes (an antenna whose keepout allows tracks) |
+| netclass widths / clearances, which class a net is in, the .kicad_dru rules | `kpcb.py FILE rules [NET..]` - never a hand read of `.kicad_pro` / `.kicad_dru` |
 | diff pair skew / coupling / gap | `kpcb.py FILE pairs [NET]` - per pair leg lengths, skew, coupled length, edge gap vs the netclass |
 | place and route on a scratch copy, prove each step | the loop in [recipes](references/recipes.md) "Place the rest": `kdrc.py COPY drc --refill-save --baseline r0.json` reads `0 new` when a step is clean |
 | widen a routed power path / add its vias | `widen` first; `kpcb.py FILE fatten NET... --amps A [--layers L] -o OUT` - same-net pour bands (0/45/90, on grid) round only the tracks too thin for A, leaving its parts' GND pads reachable (refuses without `--amps` or `--width`: no band just to lower R); `kpcb.py FILE stitch NET [X,Y] [--box ..] -o OUT` - legal via spots on its copper, written `(free yes)`; `stitch GND --sparse 5 [--keep BOX]` - worst-stitched outer pour first |

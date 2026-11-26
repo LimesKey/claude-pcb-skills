@@ -225,6 +225,10 @@ def refresh_netlist(path):
 
 _DASHVAL = re.compile(r'-[A-Z][A-Za-z0-9_+./{}~-]*$')
 _NUL = '\x00'
+# '-50,-50,100,100' / '-5,3': Python >= 3.13's argparse reads a dash + digit as a value, 3.12's
+# only a plain number (its own test below), so `--avoid -50,..` was "expected one argument" there
+_NUMLIST = re.compile(r'-\.?\d')
+_NUM312 = re.compile(r'^-\d+$|^-\d*\.\d+$')
 
 def box_arg(multi=False):
     """argparse type for X0,Y0,X1,Y1 (multi: joined by ;): checked once here, as each command
@@ -319,6 +323,15 @@ def parse_args(ap, argv=None, known=False):
     ap.error = error
     argv = [_NUL + t if i < stop and _DASHVAL.match(t) and t not in opts and t[:2] not in opts else t
             for i, t in enumerate(argv)]
+    out = []
+    for i, t in enumerate(argv):      # a number list: glued to the option taking it (its type sees it as is)
+        if i < stop and _NUMLIST.match(t) and not _NUM312.match(t) and t not in opts:
+            o = opts.get(out[-1]) if out else None
+            if o is not None and o.nargs is None and out[-1].startswith('--'):
+                out[-1] += '=' + t; continue
+            t = _NUL + t                # a positional (strings only)
+        out.append(t)
+    argv = out
     try:                          # positionals may follow options: `net X --max 3 Y`
         a, extra = ap.parse_known_intermixed_args(argv)
     except TypeError:             # a parser feature intermixed parsing refuses

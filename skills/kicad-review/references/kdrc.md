@@ -115,6 +115,7 @@ DRC/ERC rule to warning there and runs on that; the header names them. It refuse
 | --- | --- |
 | `--max N` | cap lines per rule (default 25, or `max` in kdrc.json) |
 | `--only R1,R2` / `--skip R` | keep or drop rules by name (e.g. `DRC:CLEARANCE`) |
+| `--box X0,Y0,X1,Y1` | only the DRC findings with an item inside the box (board mm), filtered before the per-rule cap: "what does DRC say around here" without parsing a `--report`. ERC findings are dropped (sheet coordinates). |
 | `--unconnected` | include the DRC `unconnected_items` (unrouted nets; hidden by default because mid-layout there are hundreds) |
 | `--parity` | add DRC schematic-parity. The CLI's parity reads one hierarchy and names Root nets `/X` where the board has `/Root/X`: those NET_CONFLICTs, and EXTRA_FOOTPRINTs whose ref a sheet beside the board places, are dropped and counted in a header note (reference board: 199 + 168). What is left is real. |
 | `--all` | every severity, and the `.kicad_pro`'s `ignore` rules too, run on a temp copy of the project with them set to warning (`--severity-all` alone never runs an ignored check); the header names them. Without it a demoted rule is silent. |
