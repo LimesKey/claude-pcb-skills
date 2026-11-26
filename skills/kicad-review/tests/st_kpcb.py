@@ -409,6 +409,17 @@ def suite(tmp, mini):
            clr('RF1', 'X', 'track', 'pad', 'F.Cu'), clr('A', 'X', 'via', 'pad', 'F.Cu'))
     check(got == (0.15, 0.1, 0.127, 0.3, 0.15),
                    f"typed DRU clearance (netclass, pad-track, outer track-track, RF class kept, via-pad) = {got}")
+    rd = os.path.join(tmp.name, 'rules')                 # Board.rules: first .kicad_pro, dru comments dropped
+    os.makedirs(rd)
+    open(os.path.join(rd, 'r.kicad_pcb'), 'w').write(open(PCB).read())
+    open(os.path.join(rd, 'a.kicad_pro'), 'w').write('{"board": {"design_settings": {"rules": {"min_copper_edge_clearance": 0.4}}}}')
+    open(os.path.join(rd, 'b.kicad_pro'), 'w').write('{"board": {"design_settings": {"rules": {"min_copper_edge_clearance": 0.9}}}}')
+    open(os.path.join(rd, 'r.kicad_dru'), 'w').write('(version 1)\n# (rule "old" (constraint edge_clearance (min 1.0mm)))\n'
+                                                     '(rule "e" (condition "A.Type == \'Via\'") (constraint hole_clearance (min 0.5mm)))\n')
+    rb = kpcb_board.Board(os.path.join(rd, 'r.kicad_pcb'))
+    import kpcb_route
+    check(rb.edge_clearance() == 0.4 and kpcb_route._hole_clr(rb) == {'via': 0.5, 'pth': 0.2, 'npth': 0.2},
+          "Board.rules: the first .kicad_pro only, a commented-out dru rule ignored, a condition before its constraint read")
     r = kpcb_amp.dt_rod(3.0, 0.3, 0.035, 1.5)
     ok6 = 0.95 < r < 1.1 and kpcb_amp.dt_ipc(kpcb_amp.ipc_current(0.3, 0.035, True, 10), 0.3, 0.035, True) - 10 < 1e-6
     check(ok6, f"ampacity rise model: rod {r:.2f} C, IPC inverse round-trip")

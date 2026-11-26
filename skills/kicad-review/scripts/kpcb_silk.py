@@ -29,7 +29,7 @@ clearance), part bodies, other silk text, footprint silk outlines, logos and the
 and never ambiguous the way `silk` judges it; nearer its current spot wins ties. Parts of
 the same footprint and rotation in a row take the same side where they can.
 --size/--thick also normalise the text (default: kept, raised to the fab minimum)."""
-import argparse, glob, json, math, os, re
+import argparse, math, re
 from collections import Counter, defaultdict
 from kcommon import natkey, trunc, print_findings, prefix
 from kpcb_board import bbox, box_dist, grow, hit, inside, overlap_area, pad_box, seg_box_dist
@@ -98,21 +98,8 @@ def art_rows(b):
 
 def limits(b):
     """(min text height, min thickness, silk clearance) from the .kicad_dru and .kicad_pro"""
-    d = os.path.dirname(os.path.abspath(b.path))
-    h, t, c = [0.0], [0.0], [0.0]
-    for dru in glob.glob(os.path.join(d, '*.kicad_dru')):
-        txt = re.sub(r'(?m)^\s*#.*$', '', open(dru, encoding='utf-8', errors='replace').read())
-        for lst, k in ((h, 'text_height'), (t, 'text_thickness'), (c, 'silk_clearance')):
-            lst += [float(x) for x in re.findall(r'\(constraint\s+%s\s+\(min\s+([\d.]+)\s*mm\)' % k, txt)]
-    for pro in glob.glob(os.path.join(d, '*.kicad_pro')):
-        try:
-            r = json.load(open(pro))['board']['design_settings']['rules']
-            h.append(float(r.get('min_text_height', 0)))
-            t.append(float(r.get('min_text_thickness', 0)))
-            c.append(float(r.get('min_silk_clearance', 0)))
-        except (OSError, ValueError, KeyError, TypeError):
-            pass
-    return max(h), max(t), max(c)
+    return tuple(max([b.design_min('min_' + k)] + [c[k] for _l, c, _c in b.rules.dru if k in c])
+                 for k in ('text_height', 'text_thickness', 'silk_clearance'))
 
 
 class Silk:

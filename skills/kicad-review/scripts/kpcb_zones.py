@@ -1,5 +1,5 @@
 """kpcb.py `zones`: per-layer pour coverage, or coverage under one footprint."""
-import os, re, json, glob, math
+import re, json, math
 from collections import defaultdict, Counter
 from kcommon import GND_RE, rail_voltage, kid, trunc, unesc_disp
 from kpcb_board import (_sample_grid, bbox, ctr, hit, inside, overlap_area, point_in_poly,
@@ -145,23 +145,18 @@ def _zones_under(b, a):
 
 # ---------------------------------------------------------------- voids
 
-def _type_rules(d):
+def _type_rules(b):
     """[(layer scope, {type, type}, min)] in file order: .kicad_dru clearance rules whose
     condition is only `A.Type == 'X' && B.Type == 'Y'` ("Pad to Track", "Min Trace Spacing
     (outer)"), scope '' / 'outer' / 'inner' / a layer name. Other conditions are skipped."""
     out = []
-    for dru in sorted(glob.glob(os.path.join(d, '*.kicad_dru'))):
-        txt = re.sub(r'(?m)^\s*#.*$', '', open(dru, encoding='utf-8', errors='replace').read())
-        for blk in re.split(r'\(rule\s+', txt)[1:]:
-            mn = re.search(r'\(constraint\s+clearance\s+\(min\s+([\d.]+)\s*mm\)\)', blk)
-            cond = re.search(r'\(condition\s+"((?:\\.|[^"\\])*)"\)', blk)
-            if not mn or not cond:
-                continue
-            terms = [re.fullmatch(r"\s*([AB])\.Type\s*==\s*'(\w+)'\s*", t) for t in cond[1].split('&&')]
-            if len(terms) != 2 or not all(terms) or {t[1] for t in terms} != {'A', 'B'} or '||' in cond[1]:
-                continue
-            lay = re.search(r'\(layer\s+"?([\w.?]+)"?\)', blk)
-            out.append((lay[1] if lay else '', frozenset(t[2].lower() for t in terms), float(mn[1])))
+    for lay, c, cond in b.rules.dru:
+        if 'clearance' not in c or not cond:
+            continue
+        terms = [re.fullmatch(r"\s*([AB])\.Type\s*==\s*'(\w+)'\s*", t) for t in cond.split('&&')]
+        if len(terms) != 2 or not all(terms) or {t[1] for t in terms} != {'A', 'B'} or '||' in cond:
+            continue
+        out.append((lay, frozenset(t[2].lower() for t in terms), c['clearance']))
     return out
 
 
@@ -181,27 +176,15 @@ def _clearance_fn(b):
 
 
 def _clearance_build(b):
-    d = os.path.dirname(os.path.abspath(b.path))
     b.warn_rules()
-    cls, bmin = {}, 0.0
-    for pro in glob.glob(os.path.join(d, '*.kicad_pro')):
-        try:
-            js = json.load(open(pro))
-            cls = {c['name']: c for c in js['net_settings']['classes']}
-            bmin = float(js['board']['design_settings']['rules'].get('min_clearance') or 0)
-        except (OSError, ValueError, KeyError, TypeError, AttributeError):
-            pass
-        break
+    cls, bmin = b.rules.classes, b.design_min('min_clearance')
     pair = {}
-    for dru in glob.glob(os.path.join(d, '*.kicad_dru')):
-        txt = open(dru, encoding='utf-8', errors='replace').read()
-        for m in re.finditer(r'\(constraint clearance \(min ([\d.]+)mm\)\)\s*\(condition "([^"]*)"\)', txt):
-            A = re.findall(r"A\.NetName == '([^']*)'", m[2])
-            B = re.findall(r"B\.NetName == '([^']*)'", m[2])
-            for x in A:
-                for y in B:
-                    pair[frozenset((x, y))] = max(pair.get(frozenset((x, y)), 0), float(m[1]))
-    typed = _type_rules(d)[::-1]                        # last in the file wins
+    for _ly, c, cond in b.rules.dru:
+        if 'clearance' in c:
+            for x in re.findall(r"A\.NetName == '([^']*)'", cond):
+                for y in re.findall(r"B\.NetName == '([^']*)'", cond):
+                    pair[frozenset((x, y))] = max(pair.get(frozenset((x, y)), 0), c['clearance'])
+    typed = _type_rules(b)[::-1]                        # last in the file wins
     outer = b.outer
     dflt = (cls.get('Default') or {}).get('clearance') or 0.2
     ncl = {}                                            # net -> its netclass clearance (3.5M asks a movecheck --scan)

@@ -3,6 +3,14 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kpcb_board (+kpcb_route, kpcb_zones, kpcb_silk) - the project's rules were read by 9 functions,
+      each with its own glob (5 unsorted), except tuple and dru regex (two the same clearance regex; three did
+      not drop `#` comments). Done: `Board.rules` (cached): the first sorted .kicad_pro's design rules, classes,
+      assignments and patterns, and every sorted .kicad_dru parsed once, comments dropped, as [(layer,
+      {constraint: min}, condition)] per rule block (a condition before its constraint now reads too);
+      `Board.design_min(key, floor)`. edge_clearance, netclass, _netclass, _hole_clr, _type_rules,
+      _clearance_build and silk `limits` read it. Reference board goldens 39/39 unchanged. Selftest: two
+      .kicad_pro (first wins), a commented-out rule ignored, condition-first hole rule. 2026-11-26.
 - [x] kicad-review/kcommon.doc_for (+ kpcb, knet, ksheet) - `TOOL.py FILE CMD -h` printed CMD's docstring lines only,
       so kpcb's ~120 flag help strings were never shown and had drifted: 22% of the reference board's transcript
       flag uses named a flag CMD's help did not (`copper --net` 82, `view -r` 68, `copper --layers` 43, `smooth

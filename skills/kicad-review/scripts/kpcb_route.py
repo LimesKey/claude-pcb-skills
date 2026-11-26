@@ -44,22 +44,13 @@ def _hole_clr(b):
     read the PTH 0.28 at J7's NPTH pegs (0.2) and boxed in a VBUS escape laid by hand."""
     if '_hclr' in b.__dict__:                        # once per board: every Exact asks
         return b._hclr
-    import glob, json, os
-    d, floor = os.path.dirname(os.path.abspath(b.path)), 0.2
-    for pro in glob.glob(os.path.join(d, '*.kicad_pro')):
-        try:
-            floor = max(floor, float(json.load(open(pro))['board']['design_settings']['rules']['min_hole_clearance']))
-        except (OSError, ValueError, KeyError, TypeError):
-            pass
-    out = dict.fromkeys(('via', 'pth', 'npth'), floor)
-    for dru in glob.glob(os.path.join(d, '*.kicad_dru')):
-        txt = open(dru, encoding='utf-8', errors='replace').read()
-        for m in re.finditer(r'\(constraint hole_clearance \(min ([\d.]+)mm\)\)(?:\s*\(condition "([^"]*)"\))?', txt):
-            cond = m[2] or ''
+    out = dict.fromkeys(('via', 'pth', 'npth'), b.design_min('min_hole_clearance', 0.2))
+    for _ly, c, cond in b.rules.dru:
+        if 'hole_clearance' in c:
             ks = [k for k, hit in (('via', "Type == 'Via'" in cond), ('npth', 'NPTH' in cond),
                                    ('pth', 'isPlated()' in cond and 'NPTH' not in cond)) if hit] or list(out)
             for k in ks:
-                out[k] = max(out[k], float(m[1]))
+                out[k] = max(out[k], c['hole_clearance'])
     b._hclr = out
     return out
 
@@ -73,16 +64,7 @@ SQ2 = math.sqrt(2)
 
 
 def _netclass(b, net):
-    if '_classes' not in b.__dict__:                # once per board: widen asked ~20k times
-        import glob, json, os
-        b._classes = {}
-        for pro in glob.glob(os.path.join(os.path.dirname(os.path.abspath(b.path)), '*.kicad_pro')):
-            try:
-                b._classes = {c['name']: c for c in json.load(open(pro))['net_settings']['classes']}
-            except (OSError, ValueError, KeyError):
-                b._classes = None
-            break
-    cls = b._classes
+    cls = b.rules.classes
     if not cls:
         return {}
     return cls.get(b.netclass(net) or 'Default') or cls.get('Default') or {}

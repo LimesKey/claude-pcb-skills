@@ -617,6 +617,44 @@ class Board:
             f._edge = (lambda f=f: self._edge_dist(f)) if self.edge_segs else None
 
     @cached_property
+    def rules(self):
+        """the project's rules beside the board, read once for every reader: the first
+        .kicad_pro (sorted) as design (board.design_settings.rules), classes {name: class},
+        assign (netclass_assignments), patterns [(pattern, class)]; every .kicad_dru (sorted,
+        comments dropped) as dru [(layer, {constraint: min mm}, condition)] in file order"""
+        from types import SimpleNamespace
+        d, pro = os.path.dirname(os.path.abspath(self.path)), {}
+        for p in sorted(glob.glob(os.path.join(d, '*.kicad_pro')))[:1]:
+            try:
+                with open(p) as fh:
+                    pro = json.load(fh)
+            except (OSError, ValueError):
+                pass
+        pro = pro if isinstance(pro, dict) else {}
+        ns = pro.get('net_settings') or {}
+        dru = []
+        for p in sorted(glob.glob(os.path.join(d, '*.kicad_dru'))):
+            txt = re.sub(r'(?m)^\s*#.*$', '', open(p, encoding='utf-8', errors='replace').read())
+            for blk in re.split(r'\(rule\s+', txt)[1:]:
+                cond = re.search(r'\(condition\s+"((?:\\.|[^"\\])*)"\)', blk)
+                lay = re.search(r'\(layer\s+"?([\w.?]+)"?\)', blk)
+                dru.append((lay[1] if lay else '', {k: float(v) for k, v in re.findall(
+                    r'\(constraint\s+(\w+)\s+\(min\s+([\d.]+)\s*mm\)', blk)}, cond[1] if cond else ''))
+        return SimpleNamespace(
+            design=((pro.get('board') or {}).get('design_settings') or {}).get('rules') or {},
+            classes={c['name']: c for c in ns.get('classes') or [] if isinstance(c, dict) and 'name' in c},
+            assign=ns.get('netclass_assignments') or {},
+            patterns=[(p.get('pattern', ''), p.get('netclass', '')) for p in ns.get('netclass_patterns') or []],
+            dru=dru)
+
+    def design_min(self, key, floor=0.0):
+        """a .kicad_pro design-rules minimum (mm) as a float, floor when unset or unreadable"""
+        try:
+            return max(floor, float(self.rules.design.get(key) or 0))
+        except (TypeError, ValueError):
+            return floor
+
+    @cached_property
     def fills(self):
         """the saved zone fills, per layer: most of the file, parsed on first use
         because most commands never look at them; 'zone' is the owning zone's uuid"""
@@ -1063,16 +1101,9 @@ class Board:
         """copper-to-edge minimum: the larger of the .kicad_pro floor and any .kicad_dru
         edge_clearance rule beside the board (0.3 mm when neither says)"""
         if not hasattr(self, '_ec'):
-            d, v = os.path.dirname(os.path.abspath(self.path)), []
-            for pro in glob.glob(os.path.join(d, '*.kicad_pro')):
-                try:
-                    v.append(float(json.load(open(pro))['board']['design_settings']['rules']
-                                   ['min_copper_edge_clearance']))
-                except (OSError, ValueError, KeyError, TypeError):
-                    pass
-            for dru in glob.glob(os.path.join(d, '*.kicad_dru')):
-                v += [float(x) for x in re.findall(r'\(constraint edge_clearance \(min ([\d.]+)mm\)\)',
-                                                   open(dru, encoding='utf-8', errors='replace').read())]
+            v = [c['edge_clearance'] for _l, c, _c in self.rules.dru if 'edge_clearance' in c]
+            if 'min_copper_edge_clearance' in self.rules.design:
+                v.append(self.design_min('min_copper_edge_clearance'))
             self._ec = max(v) if v else 0.3
         return self._ec
 
@@ -1090,16 +1121,7 @@ class Board:
         assignment, else the first matching wildcard pattern), '' if none."""
         if not hasattr(self, '_nc'):
             self.warn_rules()
-            self._nc = ({}, [])
-            for pro in glob.glob(os.path.join(os.path.dirname(os.path.abspath(self.path)), '*.kicad_pro')):
-                try:
-                    ns = json.load(open(pro)).get('net_settings', {})
-                except (OSError, ValueError):
-                    continue
-                self._nc = (ns.get('netclass_assignments') or {},
-                            [(p.get('pattern', ''), p.get('netclass', ''))
-                             for p in ns.get('netclass_patterns') or []])
-                break
+            self._nc = (self.rules.assign, self.rules.patterns)
         memo = self.__dict__.setdefault('_ncmemo', {})
         if net in memo:
             return memo[net]
