@@ -225,53 +225,15 @@ and MPN-named footprints clear automatically; divergent nomenclature -> REVIEW.
 # Self-test after editing a tool
 
 ```bash
-python3 tests/selftest.py              # every check, asserts, exit 0 = all pass (~30 s)
+python3 tests/selftest.py              # every case and check, in parallel (~7 s): FAIL lines + the total
 python3 tests/selftest.py -k 'kpcb net' # while iterating: matching cases + their inputs (~1 s)
-python3 tests/selftest.py --list       # every case label
+python3 tests/selftest.py --list       # every case label and the file:line that writes it
 ```
 
-Before a refactor, record the real board's outputs, then check after - a pure
-refactor must be byte-identical (fixtures only prove each rule still fires):
-
-```bash
-python3 tests/selftest.py --golden /tmp/golden BOARD.kicad_pcb BOARD.net   # 1st run records
-python3 tests/selftest.py --golden /tmp/golden BOARD.kicad_pcb BOARD.net   # later: diffs, exit 1 on change
-uvx pyflakes scripts/*.py        # must print nothing (exit 0)
-```
-
-`tools/verify.sh` at the repo root runs all of this and part-search's selftest in one
-go; `tools/verify.sh REV PROJECT_DIR` adds the goldens (REV's scripts vs the working
-tree, on a frozen copy of a real project). See the repo README.
-
-`selftest.py` is the source of truth for the exact commands and expected counts.
-To cover a fix: `grep -n` selftest.py for the command (e.g. `'smooth', '--jogs'`)
-to find the fixture builder it already uses (`*_board`, `*_net`, `*_project`: one
-small file in the temp dir per behaviour, its docstring or comment says what it
-carries), add a fault to it or write a sibling builder beside it, and append one
-`(label, argv, exit, substrings)` line next to that command's other cases. Give
-the label the command's name so `-k` finds it. Static fixtures beside it in `tests/`:
-`selftest.kicad_pcb` (+ `selftest_nightly.kicad_pcb`, the same board in 10.99
-`(transform ...)` form, must give identical `check`), `selftest.net`,
-`selftest_amp2`/`selftest_cross.kicad_pcb` (ampacity), `selftest_repeat/` (one sheet
-used twice). `kdrc`, `kmerge` and `height` need kicad-cli, so they are verified
-against the real board (the goldens), not here. `kdoc`'s cases run on `kdoc_docs` (an
-uploader page container and a csv, in a temp `KDOC_CACHE`); real-PDF extraction (pdftotext)
-is not covered. `sync` on the two static fixtures
-is the negative test: they are deliberately different circuits, so all five SYNC
-rules fire at once.
-
-The fixture has no regulator, so `ic` is exercised against the real board instead:
-`kpcb.py board.kicad_pcb ic` must list the switchers, and `ic <a buck>` must name an
-input cap, an inductor and a feedback part and print a diagram whose IC body is
-visible inside the frame. A blank-looking frame means the anchor shift was applied
-to the slots but not to the IC's own geometry.
-
-`selftest.kicad_pcb` is a 40x30 mm fixture carrying one deliberate fault per rule,
-including both `EDGECLR` severities (R4 crosses, R5 is merely close), both `CONNACC`
-halves (J1 buried, J3's exit blocked by C2) and both `OVERLAP` cases (R1/R2 same
-side, TP1's drill under U1 from the back). If a rule stops firing on it, that rule is
-dead - kpcb's thresholds are loose enough that a clean board reports nothing, which
-looks identical to a broken check.
+`tools/verify.sh` at the repo root runs it with part-search's selftest and pyflakes;
+`tools/verify.sh REV PROJECT_DIR` adds the goldens (REV's scripts vs the working tree on a
+frozen copy of a real project: a pure refactor must be byte-identical). How to add a case,
+and what each fixture carries: `tests/selftest.py`'s docstring.
 
 **After editing any tool, `kcommon.py`, SKILL.md or a reference file**, run
 `python3 tests/selftest.py` - green means the documented counts still hold.

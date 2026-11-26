@@ -63,15 +63,16 @@ hit, seconds, bytes, lines) or a repro. Sources, cheapest first:
 4. **Speed.** `time` the 5 most-called commands on the reference board (writers on a
    scratch copy). Over ~5 s and called often: profile with
    `python3 -m cProfile -s cumtime`. A speedup must leave the output byte-identical.
-5. **Stability.** Commands or flags with no selftest case (grep `selftest.py` for the
-   command name). Each loader against the reference board's current KiCad format.
+5. **Stability.** The selftest's coverage check already fails on a command with no case;
+   for a flag, grep `tests/st_*.py`. Each loader against the reference board's current
+   KiCad format.
 6. **Maintainability.** Churn x size:
    `git log --since=90.days --format= --name-only -- skills tools | sort | uniq -c | sort -rn | head`
    against `wc -l`. A >1000-line file edited in most runs is a split candidate; so is
    one helper defined in several scripts (`grep -hoE '^def \w+' skills/*/scripts/*.py | sort | uniq -d`).
    `tools/` (usage.py, verify.sh) and the CLAUDE.md workflow are in scope too: making
    the next run cheaper counts.
-7. **The reference thatproject's own notes** (its CLAUDE.md / TODO, read-only): work still
+7. **The reference project's own notes** (its CLAUDE.md / TODO, read-only): work still
    done by hand  a command could do.
 
 ## 3. Pick 1-3

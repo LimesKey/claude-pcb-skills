@@ -21,10 +21,12 @@ Two Claude Code skills (`skills/kicad-review`, `skills/part-search`) and a
   asked what to improve: `tools/usage.py PROJECT_DIR` mines a project's Claude
   transcripts for crashes, usage errors, help lookups and the inline scripts that mark
   a missing command; re-run a reported failure on the current tree before fixing it.
-- New behaviour gets one selftest case: grep `selftest.py` for the command and
-  extend the fixture builder it uses (recipes.md, "self-test"). Iterate with
-  `selftest.py -k LABEL` (`--keep` leaves its fixtures and outputs in the printed temp dir,
-  to poke at by hand).
+- New behaviour gets one selftest case: `tests/selftest.py --list | grep CMD` gives
+  the file:line of that command's cases (`tests/st_*.py`, one file per tool family); add
+  yours beside them, extending the fixture builder they use (case format and fixtures:
+  selftest.py's docstring). A new command fails the coverage check until it has a case
+  and a line in its reference. Iterate with `selftest.py -k LABEL` (`--keep` leaves its
+  fixtures and outputs in the printed temp dir, to poke at by hand).
 - Run `tools/verify.sh` once at the end, not per fix. When the change can move
   any tool's output, run it with a real project: `tools/verify.sh HEAD DIR
   [EXTRA.json]`. A pure refactor must read N/N unchanged.

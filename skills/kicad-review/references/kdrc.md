@@ -7,7 +7,7 @@ folds the results into the same finding format as the other tools.
 
 ```bash
 D=<skill>/scripts/kdrc.py
-python3 $D board.kicad_pcb            # DRC + ERC
+python3 $D board.kicad_pcb            # DRC + ERC (`both`, the default)
 python3 $D board.kicad_pcb drc        # DRC only
 python3 $D board.kicad_pcb erc        # ERC only, every root schematic
 python3 $D board.kicad_pcb flags      # PWR_FLAG audit (~9 s)

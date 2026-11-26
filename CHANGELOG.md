@@ -3,6 +3,27 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/tests - `selftest.py` (3056 lines, 238 KB) was touched by 21 of the last 30 commits and was
+      the most-grepped file in skill sessions (~50 grep/sed calls a run to find where a command's cases and
+      builders sit): its cases were appended in date order, every tool interleaved in one 1235-line `main()`,
+      and its docstring's "one line in CASES" no longer held. Done: split by a script into the runner
+      (`selftest.py`), `st_common.py` (paths, `run`, `check`, shared builders) and one `st_*.py` per tool
+      family (knet, kpcb read-only, kpcb copper, kpcb edits, schematic tools, kfp/kdoc/kdrc), each a
+      `suite()` generator: cases, `yield`, then its ad-hoc checks. Proven a pure move: the same 309 cases
+      (label, argv, exit, needles), byte-identical fixtures after the build phase, every result line kept.
+      Then: cases run in parallel (chains by overlapping temp paths, plus env vars like KDOC_CACHE that the
+      tool's source reads; `-j 1` for serial): 32 s -> 7 s, `verify.sh` 8 s; 10 runs at `-j 24` all green.
+      Default output is FAIL lines + the total (`-v` for every line; sessions used to `| head` it, which hid
+      the failures at the end). `--list` prints each case's file:line. A needle may be `!absent` or a
+      callable, so the six label-specific checks in the run loop moved into their cases. New coverage check:
+      every tool command (a `CMDS` key or `--help` choice) has a case and a line in its reference. It found
+      the router lint never checked kpcb/knet/kdoc/ksch commands (their `--help` prints the docstring, so no
+      choices were read; now taken from `CMDS`), 6 commands without a case (`knet unconnected`, `kpcb
+      unplaced`/`review`, `ksch syms`/`help`, `kdrc flags`: cases added; the kicad-cli ones are `NO_CASE`),
+      and `kdrc both` / `ksch check` missing from their references (added). The self-test section of
+      recipes.md (developer-only text in a reference board sessions read) moved into the docstring;
+      CLAUDE.md and skill-improver point at `--list`. Goldens on the reference board 39/39 + 18/18
+      unchanged. 2026-11-25.
 - [x] kicad-review/kdrc - `--baseline` could not tell a report from another kicad-cli build (the JSON says only
       `10.99.0`): kicad-nightly upgraded mid-session (6416 -> 6896, 2026-11-25) and every later run read 199+
       new `line_width` rows against r0.json. Done: `--report` adds `kicad_build` (`kicad-cli version --format

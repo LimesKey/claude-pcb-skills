@@ -10,6 +10,7 @@ instead of like boxes with text in them.
 | the circuit is on the board | `knet.py FILE draw U8 -d 2 -o out.svg` - laid out from the netlist |
 | ...and needs tidying | `knet.py FILE draw U8 --spec > x.ksch`, edit, `ksch.py render x.ksch -o out.svg` |
 | the circuit is proposed / from a datasheet | write the spec by hand (below) |
+| a spec to lint without drawing | `ksch.py check x.ksch`: the render's findings only, exit 2 on an ERROR |
 
 ## Spec language
 

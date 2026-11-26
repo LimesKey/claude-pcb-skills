@@ -33,7 +33,7 @@ echo "== pyflakes"
 if command -v uvx >/dev/null; then PF=(uvx pyflakes)
 elif python3 -m pyflakes --version >/dev/null 2>&1; then PF=(python3 -m pyflakes)
 else PF=(); echo "skipped: neither uvx nor python3 -m pyflakes"; fi
-[ ${#PF[@]} = 0 ] || { "${PF[@]}" "$ROOT"/skills/*/scripts/*.py "$ROOT/$K/tests/selftest.py" "$ROOT"/tools/*.py && echo clean; } || fail=1
+[ ${#PF[@]} = 0 ] || { "${PF[@]}" "$ROOT"/skills/*/scripts/*.py "$ROOT/$K"/tests/*.py "$ROOT"/tools/*.py && echo clean; } || fail=1
 echo "== tools/usage.py selftest"
 python3 "$ROOT/tools/usage.py" --selftest || fail=1
 
