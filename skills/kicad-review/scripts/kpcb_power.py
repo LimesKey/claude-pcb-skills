@@ -33,7 +33,8 @@ from collections import defaultdict
 from kcommon import unesc_disp
 from kpcb_board import PolyIndex, bbox, grow, ipc_width, pad_box, pt_seg_dist, thick_of, xf
 from kpcb_copper import _local
-from kpcb_edit import PcbText, _need_out
+from kpcb_edit import _need_out
+from kpcb_text import PcbText
 from kpcb_move import cu_layers
 from kpcb_route import ONES, Grid, _iv, _kos, _netclass, _trace, _area, class_via
 

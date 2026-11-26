@@ -18,7 +18,8 @@ from collections import defaultdict
 from kcommon import unesc_disp, rail_voltage
 from kpcb_board import PolyIndex, inside, pad_box, xf
 from kpcb_move import World, cu_layers
-from kpcb_edit import PcbText, flip_text, place_text, _flipped, drag_tracks
+from kpcb_edit import flip_text, place_text, _flipped, drag_tracks
+from kpcb_text import PcbText
 from kpcb_route import _iv, _pad_shape
 
 FLIPL = {'F.Cu': 'B.Cu', 'B.Cu': 'F.Cu'}

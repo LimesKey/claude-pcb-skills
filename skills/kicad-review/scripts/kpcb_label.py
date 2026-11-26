@@ -17,7 +17,7 @@ nearest X,Y (or REF's designator, which is then hidden), within R mm (default 3)
 import math
 from kcommon import natkey, unesc_disp
 from kpcb_board import pad_box, hit
-from kpcb_edit import PcbText, num, qs
+from kpcb_text import PcbText, num, qs
 from kpcb_silk import Silk, _box, limits
 
 H, T = 1.0, 0.15                                     # a common fab minimum, stroke font

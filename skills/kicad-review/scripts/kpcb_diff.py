@@ -140,7 +140,8 @@ def c_patch(b, s, a):
     copy SCRATCH was made from): only what SCRATCH changed from COPY is carried, and an item
     this board changed since then (and SCRATCH too) is a clash, left as this board has it.
     Footprints, silk and the rest are never carried. OUT is re-read and checked item by item."""
-    from kpcb_edit import PcbText, tear_edits
+    from kpcb_edit import tear_edits
+    from kpcb_text import PcbText
     if not a.out:
         print("diff SCRATCH --patch -o OUT [--base COPY]   (SCRATCH's tracks, vias and zones onto this board)"); return 1
     o = Board(a.base) if a.base else b

@@ -24,7 +24,7 @@ relax a raised netclass (RF) or a pair rule. A pad's own `(clearance X)` (else i
 footprint's) replaces all of that for any pair it is in, floored at the board minimum
 clearance, as KiCad's DRC does (a fiducial's 0.6); `route`, `movecheck`, `place`, `stitch`,
 `smooth` and `widen` all use it, and it warns once when no project rules sit beside the
-board. The writers are `kpcb_edit.py` (the text-span editor plus `fixlines`, `renet`,
+board. Every writer edits through `kpcb_text.py` (PcbText, the text-span editor). The writers are `kpcb_edit.py` (`fixlines`, `renet`,
 `ripup`, `unhook`, `move`, `edit`), `kpcb_route.py` (`airwires`, `route`, `pairs`),
 `kpcb_place.py` (`place`), `kpcb_power.py` (`fatten`, `stitch`, the `vscan` reader),
 `kpcb_smooth.py` (`smooth`), `kpcb_tracks.py` (`widen`, `loops -o`), `kpcb_silk.py`

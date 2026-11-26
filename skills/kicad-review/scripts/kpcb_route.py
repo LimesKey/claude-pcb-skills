@@ -20,7 +20,8 @@ from kpcb_board import PolyIndex, _pidx, bbox, grow, inside, pad_box, pt_seg_dis
 from kpcb_copper import Copper, _local, _q
 from kpcb_move import cu_layers, via_layers
 from kpcb_zones import _clearance_fn, _keepouts
-from kpcb_edit import PcbText, tear_edits
+from kpcb_edit import tear_edits
+from kpcb_text import PcbText
 
 DIRS = [(1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1), (0, -1), (1, -1)]
 

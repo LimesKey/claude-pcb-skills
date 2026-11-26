@@ -447,14 +447,14 @@ def suite(tmp, mini):
     CASES.append(("kpcb edit text keep shifts the render_cache", ['kpcb.py', sab, 'edit', 'text', 'gtRC', '6,18', 'keep',
                                                                   '-o', T('silkart/rc2.kicad_pcb')], 0, ["text  gtRC -> 6,18 keep"]))
     yield
-    import kpcb_board, kpcb_edit, kpcb_freebox, kpcb_place                # the checks below call them in-process
+    import kpcb_board, kpcb_edit, kpcb_freebox, kpcb_place, kpcb_text                # the checks below call them in-process
     ab = kpcb_board.Board(sab)
     rcb = next(x['box'] for x in ab.silktexts if x['text'] == 'RC')
     og, ox, oy = kpcb_freebox.occupancy(ab, False)
     check(rcb == (5.0, 16.5, 7.0, 18.0) and og[int((15 - oy) / 0.25)][int((19 - ox) / 0.25)] == 1,
                    f"TTF render_cache is the text box {rcb}; freebox counts P1's SMD pad outside its courtyard")
     wb2 = os.path.join(tmp.name, 'w2.kicad_pcb')                 # fixlines output, above
-    bb, tt = kpcb_board.Board(wb2), kpcb_edit.PcbText(wb2)
+    bb, tt = kpcb_board.Board(wb2), kpcb_text.PcbText(wb2)
     G = lambda f: type('G', (), {'ref': f.ref, 'x': f.x + 1, 'y': f.y, 'rot': f.rot + 90})()   # noqa: E731
     ok7 = all(kpcb_edit.flip_text(kpcb_edit.flip_text(tt.text(f.uuid), f), f) == tt.text(f.uuid) and
               kpcb_edit.place_text(kpcb_edit.place_text(tt.text(f.uuid), f, f.x + 1, f.y, f.rot + 90), G(f),

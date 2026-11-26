@@ -56,7 +56,8 @@ from kpcb_copper import _local, pad_dist, pad_within
 from kpcb_route import Grid, _legs, _pad_shape, _planes, _kos, _hole_clr
 from kpcb_move import via_layers, is_arc
 from kpcb_zones import _clearance_fn
-from kpcb_edit import PcbText, tear_edits, num
+from kpcb_edit import tear_edits
+from kpcb_text import PcbText, num
 
 RES = 0.02                                          # Clear's grid pitch
 OFFS = (0.25, 0.75, 1 / 3, 2 / 3)                   # off-centre H+45+H splits solve() tries last

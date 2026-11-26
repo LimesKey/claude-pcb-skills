@@ -25,7 +25,7 @@ import math, os, re, shutil, subprocess, tempfile, uuid
 from kpcb_board import Board, inside, poly_area
 from kpcb_fillet import chains, clean, fillet_outline, octilinear, simple, smooth_fill, _ring_dist
 from kpcb_route import simplify
-from kpcb_edit import PcbText, num, qs
+from kpcb_text import PcbText, num, qs
 from kcommon import kicad_cli, trunc
 
 MICRO = 0.3           # tracks --kind zonepts: a designer's zones are <= 22 corners, <= 3 edges under this

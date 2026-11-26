@@ -38,7 +38,8 @@ from kcommon import unesc_disp, rail_voltage, prefix
 from kpcb_board import PolyIndex, bbox, hit, poly_area, pt_seg_dist, seg_seg_dist
 from kpcb_route import Grid, _netclass, piece_parts
 from kpcb_move import via_layers, is_arc
-from kpcb_edit import PcbText, tear_edits, num, prune, _rip_out
+from kpcb_edit import tear_edits, prune, _rip_out
+from kpcb_text import PcbText, num
 from kpcb_copper import pad_dist
 from kpcb_smooth import (Index, Exact, chains, covered, leg_in_cap, cap_rounds, cut_corner, skipped, in_pad, on_layer, octi, ang, turn,
                          q, RES, GRAZE, pad_ends, pad_joins, twins, no_project, cap_joints, close_joint)

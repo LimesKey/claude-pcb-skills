@@ -457,7 +457,7 @@ def edit_text(blk, at=None, ang=None, h=None, t=None, hide=None, centre=False):
     """a text block (footprint field at 3 tabs, board gr_text at 2) with its (at), size,
     thickness, hide flag changed; centre drops left/right/top/bottom justification (mirror
     kept). Every regex count asserted."""
-    from kpcb_edit import num
+    from kpcb_text import num
     ind = re.match(r'\n?(\t+)\(', blk)[1] + '\t'
     if at is not None or ang is not None:
         m = re.search(r'\(at (\S+) (\S+)(?: (\S+))?\)', blk)
@@ -482,7 +482,8 @@ def edit_text(blk, at=None, ang=None, h=None, t=None, hide=None, centre=False):
 
 
 def c_refdes(b, a):
-    from kpcb_edit import PcbText, _need_out
+    from kpcb_edit import _need_out
+    from kpcb_text import PcbText
     from kpcb_move import fp_local
     plan = plan_refdes(b, a)
     if not plan:

@@ -3,6 +3,11 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kpcb_text - PcbText, the text-surgery layer every writer uses, sat in kpcb_edit with the writer
+      commands, so 9 modules imported a command module to write a file. Done: PcbText, num, qs and norm_ang in
+      their own kpcb_text.py (no command imports); every importer points there (kpcb_edit re-exports them for
+      old callers). The rest of the layering entry (a query layer for _planes, _clearance_fn, skipped/Exact,
+      dead_copper, fp_local; the 124 deferred imports) stays open. Goldens 39/39 unchanged. 2026-11-26.
 - [x] kicad-review/kpcb_board.Buckets - 7 hand-rolled 2-D bucket indexes, each with its own cell size, box-to-cells
       loop and dedupe. Done: `Buckets(cell)`: `put(obj, box, *tag)` (tag: a layer or net), `near(box, *tag,
       key=id)` yielding each object once, cells x-major then y, a cell in insertion order (each copy's order, so
