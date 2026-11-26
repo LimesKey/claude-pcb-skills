@@ -3,6 +3,18 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kdrc - `--baseline` could not tell a report from another kicad-cli build (the JSON says only
+      `10.99.0`): kicad-nightly upgraded mid-session (6416 -> 6896, 2026-11-25) and every later run read 199+
+      new `line_width` rows against r0.json. Done: `--report` adds `kicad_build` (`kicad-cli version --format
+      about`), and `--baseline` prints a `!!` line naming both builds when they differ. kdrc selftest check.
+      2026-11-25.
+- [x] kicad-review/kcommon - `FILE` with no command (`knet.py X.net`, `kpcb.py X.kicad_pcb`) printed argparse's
+      usage block and "required: cmd" (2 sessions in 30 days, each a retry). Done: `parse_args` prints the
+      `--help` text under `TOOL.py: error: no command given`, exit 2, for every tool; a mistyped command
+      still gets argparse's `invalid choice`. Selftest `knet no cmd`. 2026-11-25.
+- [x] kicad-review/kcommon - `kid()` built the whole `kids()` list to take [0] (175k calls a Board load): an
+      early-exit loop. Board load 0.344 -> 0.327 s on the reference board, byte-identical. 2026-11-25.
+
 - [x] kicad-review/kdrc - every writer prints `verify: kdrc.py OUT drc ...` and recipes.md runs DRC on each
       step's `-o n.kicad_pcb`, but kicad-cli reads the rules from `<stem>.kicad_pro` only: beside
       `parsnip.kicad_pro` that board was checked on KiCad's defaults (the 2026-11-25 clean-up pass read 944

@@ -198,6 +198,17 @@ def run_cli(args, tag):
         except OSError: pass
 
 
+def cli_build(cli):
+    """kicad-cli's full build (`10.99.0-6896-g325103a751`), '' if it will not say: the JSON
+    report's kicad_version is only `10.99.0`, the same across every nightly"""
+    try:
+        r = subprocess.run([cli, 'version', '--format', 'about'], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired):
+        return ''
+    m = re.search(r'^Version: ([^,\s]+)', r.stdout, re.M)
+    return m.group(1) if m else ''
+
+
 def discover_roots(board):
     """Root schematics = the .kicad_pro's top_level_sheets, the project's own root
     (<stem>.kicad_sch) first - its nightly report covers every top-level sheet, while
@@ -278,6 +289,11 @@ def _against(d, a):
         a.base_note += f"\n  changed {v['type']}: {w} -> {v.get('description', '')}  ({it[:50]})"
     if len(changed) > 6:
         a.base_note += f"\n  ... +{len(changed) - 6} more changed (same item uuid, new measure)"
+    ob, nb = old.get('kicad_build'), d.get('kicad_build')
+    if ob and nb and ob != nb:
+        a.base_note += (f"\n!! the baseline is from kicad-cli {ob}, this run {nb}: a new build adds and rewords "
+                        f"checks, so a 'new' row may be the build, not the board. Re-record it with this build "
+                        f"(`--report` on the unedited board)")
     capped = sorted({t for rep in (old, d) for t, c in Counter(v.get('type') for v in rep.get('violations', [])).items()
                      if c >= 199})
     if capped:
@@ -297,6 +313,8 @@ def do_drc(board, a):
                          f"Use it on a scratch copy.\n")
         sys.exit(3)
     d = run_cli(args + ['--refill-zones'] + (['--save-board'] if a.refill_save else []) + [board], 'DRC')
+    if a.report or a.baseline:
+        d['kicad_build'] = cli_build(args[0])
     if a.report:
         with open(a.report, 'w') as fh:
             json.dump(d, fh)
@@ -558,6 +576,15 @@ def _selftest():
     except SystemExit as e:
         refused = '--report OLD.json' in str(e)
     checks.append((refused, "baseline: kdrc's own --json rows crashed _against instead of naming --report"))
+    json.dump({'violations': [], 'kicad_build': '10.99.0-6416-g1'}, open(a2.baseline, 'w'))
+    _against({'violations': [], 'kicad_build': '10.99.0-6896-g2'}, a2)
+    fake = os.path.join(tempfile.gettempdir(), 'kdrc_fake_cli')
+    with open(fake, 'w') as fh:
+        fh.write("#!/bin/sh\necho 'Application: kicad-cli'\necho 'Version: 10.99.0-6896-g2, release build'\n")
+    os.chmod(fake, 0o755)
+    checks.append(('kicad-cli 10.99.0-6416-g1, this run 10.99.0-6896-g2' in a2.base_note
+                   and cli_build(fake) == '10.99.0-6896-g2',
+                   "baseline: a report from another kicad-cli build read as the board's new violations, unflagged"))
     checks.append((_vkey(tx('v2 2026-10-18')) == _vkey(tx('v2 2026-10-19'))
                    and _ikey({'description': 'Track [A] on F.Cu', 'uuid': 'x'}) == 'Track [A] on F.Cu',
                    "baseline: a text item's changed text made it a new violation (key it by uuid)"))
@@ -856,7 +883,8 @@ def main():
                     help='skip the second DRC pass on the saved zone fill')
     ap.add_argument('--refill-save', action='store_true',
                     help='save the refilled board (scratch copies only: refused for a git-tracked file)')
-    ap.add_argument('--report', default='', help='write the raw kicad-cli DRC JSON here (a later --baseline)')
+    ap.add_argument('--report', default='',
+                    help='write the raw kicad-cli DRC JSON here, plus kicad_build (a later --baseline warns when its build differs)')
     ap.add_argument('--baseline', default='',
                     help='an earlier --report file (not --json output): list only violations/unconnected items it does not have')
     ap.add_argument('--rules', action='store_true', help='print the rule legend')

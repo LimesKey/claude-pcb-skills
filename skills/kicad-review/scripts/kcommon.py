@@ -258,6 +258,14 @@ def parse_args(ap, argv=None, known=False):
         print(doc_for(sys.modules['__main__'].__doc__ or ap.format_help(),
                       next((t for t in argv[:stop] if t in cmds), None)))
         sys.exit(0)
+    err = ap.error
+    def error(msg):               # no command (`knet.py X.net`): the command list, not the flags' usage block
+        if msg.startswith('the following arguments are required:') and 'cmd' in msg.split(':')[1].replace(' ', '').split(','):
+            sys.stderr.write(f"{ap.prog}: error: no command given; the commands:\n")
+            print(doc_for(sys.modules['__main__'].__doc__ or ap.format_help(), None))
+            sys.exit(2)
+        err(msg)
+    ap.error = error
     argv = [_NUL + t if i < stop and _DASHVAL.match(t) and t not in opts and t[:2] not in opts else t
             for i, t in enumerate(argv)]
     try:                          # positionals may follow options: `net X --max 3 Y`
@@ -510,8 +518,10 @@ def kids(node, tag):
     return [c for c in node if isinstance(c, list) and c and c[0] == tag]
 
 def kid(node, tag):
-    k = kids(node, tag)
-    return k[0] if k else None
+    for c in node:                # first match only: kids() built the whole list (175k calls a board load)
+        if isinstance(c, list) and c and c[0] == tag:
+            return c
+    return None
 
 def val(node, tag, default=""):
     k = kid(node, tag)

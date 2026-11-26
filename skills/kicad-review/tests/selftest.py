@@ -61,6 +61,7 @@ CASES = [
     ("kdoc usage",   ['kdoc.py', 'near', 'x'],                  1, ["usage: kdoc.py near 'bias-t' 'resistor'"]),
     # -h before the required positionals: was "the following arguments are required"
     ("knet help",    ['knet.py', '--help'],                     0, ["knet.py v3"]),
+    ("knet no cmd",  ['knet.py', NET],                          2, ["no command given", "knet.py FILE summary"]),  # was the flags' usage block
     ("knet summary next", ['knet.py', NET, 'summary'],          0, ["R      4  next R5    R1-R4"]),
     ("kpcb help cmd", ['kpcb.py', PCB, 'where', '-h'],          0, ["kpcb.py FILE where U8 J7", "lists every command"]),
     ("kpcb where --pads", ['kpcb.py', PCB, 'where', 'U1', '--pads'], 0, ["    2     11.500, 11.500  F      0.50x0.60 rot 0  GND"]),

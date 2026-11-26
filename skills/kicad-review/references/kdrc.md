@@ -124,8 +124,8 @@ DRC/ERC rule to warning there and runs on that; the header names them. It refuse
 | `--selftest` | run the offline suppression-logic self-test and exit (no board or kicad-cli needed) |
 | `--no-stale-check` | skip the saved-fill DRC pass |
 | `--refill-save` | save the refilled board (what `kpcb airwires` reads). Scratch copies only: refused for a git-tracked file. Skips the stale-fill pass (the saved fill is the refill). |
-| `--report FILE` | write kicad-cli's raw DRC JSON (for `--baseline`, and `kpcb ripup --drc`, which deletes the items it names by uuid) |
-| `--baseline FILE` | an earlier `--report`: list only violations and unconnected items it lacks (multiset on type + descriptions, positions ignored; a text item by its uuid, as its text can hold a date variable; a `track_width` by its track's uuid, so a widened or re-laid under-floor track reads `changed: actual 0.6 -> 0.7`, not new + gone), with `N new, M gone, K changed` counts. When a type hits kicad-cli's 199-per-type cap in either report it says so: that type's new/gone lists compare two arbitrary samples. The check after every scratch-copy edit. |
+| `--report FILE` | write kicad-cli's raw DRC JSON plus `kicad_build` (`10.99.0-6896-g325103a751`: the JSON's own `kicad_version` is the same across nightlies), for `--baseline`, and `kpcb ripup --drc`, which deletes the items it names by uuid |
+| `--baseline FILE` | an earlier `--report`: list only violations and unconnected items it lacks (multiset on type + descriptions, positions ignored; a text item by its uuid, as its text can hold a date variable; a `track_width` by its track's uuid, so a widened or re-laid under-floor track reads `changed: actual 0.6 -> 0.7`, not new + gone), with `N new, M gone, K changed` counts. When a type hits kicad-cli's 199-per-type cap in either report it says so: that type's new/gone lists compare two arbitrary samples. A baseline from another kicad-cli build gets a `!!` line (a nightly upgrade mid-session read 199+ new `line_width` rows on an unedited board): re-record it. The check after every scratch-copy edit. |
 
 ## kdrc.json (beside the board)
 
