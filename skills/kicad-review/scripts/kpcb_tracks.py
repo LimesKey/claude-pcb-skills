@@ -34,7 +34,7 @@ are skipped (parallel copper is lower R). -o deletes them and their teardrops; v
 `kdrc.py OUT drc --refill-save --baseline BEFORE.json` (0 new unconnected)."""
 import math, re
 from collections import defaultdict, Counter
-from kcommon import unesc_disp, rail_voltage
+from kcommon import unesc_disp, rail_voltage, prefix
 from kpcb_board import PolyIndex, bbox, hit, poly_area, pt_seg_dist, seg_seg_dist
 from kpcb_route import Grid, _netclass, piece_parts
 from kpcb_move import via_layers, is_arc
@@ -856,8 +856,22 @@ def c_widen(b, a):
             w = min(nb, default=0.0)
             if nb and w > t['w'] + 1e-3 and w <= min(vs, default=w) and ok(i, t, w):
                 accept(i, t, w)
+    first = {}                                       # a stub shorter than its new width, at a via, whose
+    for i, w0, _w in done:                           # track beyond stays narrower: widened alone it is a
+        first.setdefault(i, w0)                      # disc on the via, not a wider run (undo it)
+    def disc(i):
+        t = b.tracks[i]
+        return t['len'] < t['w'] and any(
+            ix.on_via(t['net'], t['layer'], e) and not ix.on_pad(t['net'], t['layer'], o)
+            and (nb := [k for k in ix.ends[(t['net'], t['layer'], q(o))] if k != i])
+            and all(b.tracks[k]['w'] < t['w'] - 1e-3 for k in nb) for e, o in ((t['a'], t['b']), (t['b'], t['a'])))
+    for i in [i for i in first if disc(i)]:
+        t = b.tracks[i]
+        tally[b.netclass(t['net']) or 'Default'] -= t['len'] * (t['w'] - first[i])
+        t['w'] = first[i]
+        done = [d for d in done if d[0] != i]
     print(f"widen: {len(done)} track(s); copper added (mm2) by class: "
-          + (', '.join(f'{k} {v:.1f}' for k, v in sorted(tally.items())) or 'none')
+          + (', '.join(f'{k} {v:.1f}' for k, v in sorted(tally.items()) if v > 1e-9) or 'none')
           + (f"; {steps} width step(s) left mid-run in power classes (boxed in)" if steps is not None else ''))
     for i, w0, w1 in sorted(done, key=lambda d: -b.tracks[d[0]]['len'] * (d[2] - d[1]))[:a.max]:
         t = b.tracks[i]
@@ -902,25 +916,56 @@ def c_loops(b, a):
         # misses when the pad was already strictly apart (LED_DO U20.3's centre stub, 2026-10-19)
         return tuple({frozenset(f"{f.ref}.{p['num']}" for f, p in pc['pads']) for pc in piece_parts(b, net, st)}
                      for st in (False, True)) + (entered,)
-    found, kill = [], set()
-    for net in sorted(nets):
-        base = part(net)
-        while True:
+    def acute(net):         # two-track nodes turning > 90 deg: a removal must not leave a new one
+        ends = defaultdict(list)
+        for t in b.tracks:
+            if t['net'] == net and t['len'] > 1e-4:
+                ends[(t['layer'], q(t['a']))].append((t['b'], t['a']))
+                ends[(t['layer'], q(t['b']))].append((t['a'], t['b']))
+        return {k for k, lst in ends.items() if len(lst) == 2
+                and turn(ang(lst[0][0], lst[0][1]), ang(lst[1][1], lst[1][0])) >= 91}
+    found, kill, cur = [], set(), None
+    def now():              # the board minus kill: one track/via list, Index and prune memo per kill
+        nonlocal cur
+        if cur is None or cur[0] != len(kill):
             b.tracks = [t for t in allT if id(t) not in kill]
             b.vias = [v for v in allV if id(v) not in kill]
+            cur = (len(kill), b.tracks, b.vias, Index(b), {})
+        b.tracks, b.vias = cur[1], cur[2]
+        return cur
+    for net in sorted(nets):
+        now()
+        base, sharp = part(net), acute(net)
+        while True:
+            _n, T, V, ix, memo = now()
             got = None
-            pads = [p for f in b.fps.values() if f.placed for p in f.pads if p['net'] == net]
+            fpads = [(f.ref, p) for f in b.fps.values() if f.placed for p in f.pads if p['net'] == net]
+            pads = [p for _r, p in fpads]
             vias = [(v['x'], v['y'], v['size'] / 2) for v in b.vias if v['net'] == net]
-            chs = [c for c in chains(b, set(), only={net})     # an entry stub inside one pad or via is no loop
+            chs = [c for c in chains(b, set(), ix=ix, only={net})     # an entry stub inside one pad or via is no loop
                    if not any(all(in_pad(p, x) for x in c[4]) for p in pads)
                    and not any(all(math.dist(x, (vx, vy)) <= r for x in c[4]) for vx, vy, r in vias)]
-            for ch in sorted(chs, key=lambda c: -sum(b.tracks[i]['len'] for i in c[3])):
-                k2 = prune(b, {id(b.tracks[i]) for i in ch[3]})
-                b.tracks = [t for t in allT if id(t) not in kill | k2]
-                b.vias = [v for v in allV if id(v) not in kill | k2]
-                same = part(net) == base
-                b.tracks = [t for t in allT if id(t) not in kill]
-                b.vias = [v for v in allV if id(v) not in kill]
+            L = {id(c): sum(b.tracks[i]['len'] for i in c[3]) for c in chs}
+            # a cap pad's run straight to another pad, a power pin's first, else the shortest, is its
+            # decoupling path: tried last (longest-first once cut C4's run to the IC's VIN, kept ON's)
+            keep = {}
+            for c in chs:
+                ps = [next(((r, p) for r, p in fpads if on_layer(p, c[1]) and in_pad(p, e)), None)
+                      for e in (c[4][0], c[4][-1])]
+                if None in ps or ps[0][1] is ps[1][1]:
+                    continue
+                for (r, p), (_r, o) in (ps, ps[::-1]):
+                    k = ('power' not in (o.get('type') or ''), L[id(c)])
+                    if prefix(r) == 'C' and (id(p) not in keep or k < keep[id(p)][0]):
+                        keep[id(p)] = (k, c)
+            kept = {id(c) for _k, c in keep.values()}
+            for ch in sorted(chs, key=lambda c: (id(c) in kept, -L[id(c)])):
+                k2 = prune(b, {id(b.tracks[i]) for i in ch[3]}, memo=memo)
+                gone = kill | k2
+                b.tracks = [t for t in allT if id(t) not in gone]
+                b.vias = [v for v in allV if id(v) not in gone]
+                same = part(net) == base and acute(net) <= sharp
+                b.tracks, b.vias = T, V
                 if same:
                     got = (ch, k2)
                     break

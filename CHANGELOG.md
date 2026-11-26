@@ -3,6 +3,43 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kcommon.doc_for (+ kpcb, knet, ksheet) - `TOOL.py FILE CMD -h` printed CMD's docstring lines only,
+      so kpcb's ~120 flag help strings were never shown and had drifted: 22% of the reference board's transcript
+      flag uses named a flag CMD's help did not (`copper --net` 82, `view -r` 68, `copper --layers` 43, `smooth
+      --box` 31, ...), each really read. Owner's call: show them, as part.py does. Done: `doc_for(doc, cmd, ap)`
+      appends `CMD flags:`, every flag whose help names CMD (`for `a`/`b` and `c --x`:` clauses, or a leading
+      `a/b:` as kfp/ksheet/kdoc/part.py write), other commands' clauses cut; a writer (its entry takes -o) also
+      gets the `for the writers` flags. An AST walk of each command's reads (its function and the helpers it
+      passes `a` to) found 19 kpcb commands and 6 knet ones under-listed; fixed (-r, --net, --layers, --box,
+      --pads, --side, --cols, --amps, --dt, --px, --via-cost; knet -d, --through, --fanout, --rail,
+      --peer-max, --max). The footer said `--help` "lists every command and flag"; it lists the commands.
+      SKILL.md names `CMD -h`. Selftest: `where -h` and `copper --help` show their flags. 2026-11-26.
+- [x] kicad-review/kcommon.project_cfg - knet.json / kpcb.json / kdrc.json were loaded by 6 hand-written blocks
+      and `suppress` parsed by the same 5 lines in knet and kpcb; kpcb_amp (`ilim`) and kfront (`i2c`, twice)
+      dropped a malformed knet.json silently, so a typo made `kpcb ampacity` lose the ilim table without a
+      word. Done: `project_cfg(path, name)` ({} when absent; {} plus one stderr line per file per run when bad
+      JSON or not an object) and `suppress_map(cfg, off)`, used by all six. Selftest: `ampacity` beside a
+      truncated knet.json names it. 2026-11-26.
+- [x] kicad-review/kpcb_tracks `loops` - greedy longest-first removal cut a decoupling cap's run to its IC's
+      supply pin and kept a longer path through another pin (reference board C4: VIN run cut, the 1.7 mm
+      diagonal to ON kept, an acute V at U23.4). Done: per cap pad, its direct run to another pad (a power pin's
+      first, else the shortest) is tried last, and a removal that leaves a new two-track node turning >= 91 deg
+      (the census's `acute`) is refused. Also faster, output identical: one track/via list, Index and prune memo
+      per kill set instead of per candidate (the per-track `kill | k2` union is gone), `prune` builds its 1 mm
+      grid once per call and skips killed items rather than rebuilding it every round, and `_newly_dead` takes
+      a memo of each net's dead copper before the rip. Reference board `loops` 6.7 -> 3.6 s (the rest is
+      piece_parts / dead_copper Copper builds per candidate). Selftest: 2 cases (a cap's supply run, an acute V).
+      2026-11-26.
+- [x] kicad-review/kpcb_tracks `widen` - widened sub-width stubs at a via into a disc while the run beyond stayed
+      narrow (reference board VBUS f24b332a 12 um 0.8->1.5 and 1f582d8c 43 um 1.0->1.5, PD_LDO_3V3 72adc009
+      0.11 mm 0.15->0.5; the first two came from the per-segment power pass, not --uniform-power). Done: after
+      every pass, a widened track shorter than its new width with one end on a via and every track at its other
+      end narrower goes back to its width. Reference board: exactly those 3 dropped, CHG_VBUS's 1.7 mm widen
+      kept. A zero class no longer prints in the tally. Selftest: a via stub fixture. 2026-11-26.
+- [x] kicad-review/kpcb_zoneshape `zonemerge` - the merged zone kept the higher-priority zone's name, a script
+      band's ('route +BATT' / 'fatten X'), so the designer's name vanished (4 hand renames on the reference
+      board). Done: when only the higher one is a band, the merged zone takes the other's name. Selftest: the
+      split -o check reads zg's name. 2026-11-26.
 - [x] kicad-review/kpcb_move, kpcb_rf, kpcb_zones, kpcb_tracks, kpcb_board - zero-cost speedups found by an
       architecture audit, output byte-identical on the reference board. Done: `drag_set` skips tracks and vias
       off f's pad nets or outside its pads' box (it did 33.7M via distance tests for `tidy`); `refslots` scans

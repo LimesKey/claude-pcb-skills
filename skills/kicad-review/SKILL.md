@@ -30,6 +30,7 @@ D=<skill>/scripts/kdoc.py   S=<skill>/scripts/ksch.py   F=<skill>/scripts/kfp.py
 `knet check` and `kpcb check` are heuristics on the netlist and placement;
 `kdrc.py` runs **KiCad's own** DRC (honouring the project's `.kicad_dru`) and ERC, the
 authoritative rules check. `kpcb.py FILE zones` reports pour-fill coverage.
+`TOOL.py FILE CMD -h` prints CMD's docstring lines and every flag it reads.
 
 All the tools share `kcommon.py` (the S-expr parser, the value/ref helpers, the
 footprint-library resolver, the `Netlist` + `SchInfo` model and the finding

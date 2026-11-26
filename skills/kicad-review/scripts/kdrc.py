@@ -63,7 +63,7 @@ import sys, os, re, json, glob, tempfile, subprocess
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
-    from kcommon import (print_findings, suppressed, trunc, kicad_cli,
+    from kcommon import (print_findings, suppressed, trunc, kicad_cli, project_cfg,
                          top_level_sheets, project_root, sch_files, parse_args, doctor, rules_warning)
 except ImportError:                                     # pragma: no cover
     print("kdrc.py needs kcommon.py beside it (shared finding formatter)",
@@ -848,14 +848,6 @@ def borrowed_copy(board):
     return os.path.join(tmp, stem + '.kicad_pcb'), stem
 
 
-def load_cfg(board):
-    cp = os.path.join(os.path.dirname(os.path.abspath(board)), 'kdrc.json')
-    try:
-        return json.load(open(cp)) if os.path.exists(cp) else {}
-    except (OSError, ValueError) as e:
-        sys.stderr.write(f"(ignoring malformed kdrc.json: {e})\n"); return {}
-
-
 def main():
     if '--selftest' in sys.argv[1:]:            # no board needed, so check before argparse
         return _selftest()
@@ -903,7 +895,7 @@ def main():
         lines = doctor(os.path.dirname(os.path.abspath(a.file)))
         print('\n'.join(lines))
         return 2 if any('WARN' in x for x in lines) else 0
-    cfg = load_cfg(a.file)
+    cfg = project_cfg(a.file, 'kdrc.json')
     if a.max is None:
         a.max = cfg.get('max', 25)
     a.erc_roots = cfg.get('erc_roots')

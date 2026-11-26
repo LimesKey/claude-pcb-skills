@@ -741,7 +741,7 @@ def main():
     ap.add_argument('cmd', choices=['sch', 'lint', 'view', 'labelspot'])
     ap.add_argument('target', nargs='?', default='')
     ap.add_argument('name', nargs='?', default='', help='labelspot: label text (default: the net base name)')
-    ap.add_argument('-r', type=float, default=None, help='radius mm (sch 5, lint --around 10, view 10)')
+    ap.add_argument('-r', type=float, default=None, help='sch/view/lint --around: radius, mm (sch 5, view 10, lint 10)')
     ap.add_argument('--around', default='', help='lint: only the region around this REF')
     ap.add_argument('--crowd', type=float, default=2.54, help='lint CROWD distance, mm')
     ap.add_argument('--box', default='', type=box_arg(), help='view: X0,Y0,X1,Y1 sheet mm')

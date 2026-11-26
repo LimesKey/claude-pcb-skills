@@ -227,9 +227,39 @@ def box_arg(multi=False):
         return ';'.join(out)
     return f
 
-def doc_for(doc, cmd):
+_FOR = re.compile(r'for ((?:`[^`]+`(?:/|, | and |,? or )?)+)')
+_PRE = re.compile(r'(?:^|; )([a-z]+(?:/[a-z]+)*)(?: [^:;]{1,24})?:')
+
+def help_cmds(h, writers=False):
+    """the commands a flag's help names: `for `a`/`b` and `c --x`:` clauses (kpcb, knet) or
+    a leading `a/b:` / `; a --x:` (kfp, ksheet, kdoc, part.py); 'for the writers' -> {'-o'}"""
+    out = {m.split()[0] for g in _FOR.findall(h or '') for m in re.findall(r'`([^`]+)`', g)}
+    out |= {c for g in _PRE.findall(h or '') for c in g.split('/')}
+    return out | ({'-o'} if 'the writers' in (h or '') else set())
+
+def flags_for(ap, cmd, entry=''):
+    """CMD's flags as help lines: each flag whose help names CMD (a writer, its entry taking
+    -o, also gets 'for the writers' flags), the clauses for other commands cut"""
+    import textwrap
+    writer = bool(re.search(r'(?<![\w-])-o\b', entry))
+    mine = lambda h: cmd in (n := help_cmds(h)) or (writer and '-o' in n)     # noqa: E731
+    out = []
+    for act in ap._actions:
+        if not act.option_strings or not mine(act.help):
+            continue
+        parts = re.split(r'; (?=for |[a-z]+(?:/[a-z]+)*(?: [^:;]{1,24})?:)', act.help)
+        h = '; '.join(x for x in parts if mine(x)) or act.help
+        h = re.sub(rf'^(?:for (?:`{re.escape(cmd)}`|the writers)|{re.escape(cmd)}): ', '', h)
+        flag = ' '.join(act.option_strings) + ('' if act.nargs == 0 else ' ' + (act.metavar or act.dest.upper()))
+        if len(flag) > 22:
+            out.append('  ' + flag)
+            flag = ''
+        out.append(textwrap.fill(h, 100, initial_indent=f"  {flag:<22} ", subsequent_indent=' ' * 25))
+    return out
+
+def doc_for(doc, cmd, ap=None):
     """the docstring's entries for CMD (`  tool.py [FILE] CMD ...` plus its deeper-indented
-    continuation lines), else the whole docstring"""
+    continuation lines) and, given ap, the flags whose help names CMD; else the whole docstring"""
     out, keep = [], None
     for ln in doc.splitlines():
         ind, tok = len(ln) - len(ln.lstrip()), ln.split()
@@ -241,7 +271,10 @@ def doc_for(doc, cmd):
             out.append(ln)
     if not cmd or not out:
         return doc
-    return '\n'.join(out) + f"\n\n(`{os.path.basename(sys.argv[0])} --help` lists every command and flag)"
+    fl = flags_for(ap, cmd, '\n'.join(out)) if ap else []
+    tool = os.path.basename(sys.argv[0])
+    return '\n'.join(out + ([f"\n{cmd} flags:"] + fl if fl else [])) + \
+        f"\n\n(`{tool} --help` lists every command; `{tool} --help CMD` its flags)"
 
 
 def parse_args(ap, argv=None, known=False):
@@ -256,7 +289,7 @@ def parse_args(ap, argv=None, known=False):
     if not ap.add_help and {'-h', '--help'} & set(argv[:stop]):  # before the required positionals refuse it
         cmds = next((x.choices for x in ap._actions if x.dest == 'cmd' and x.choices), ())
         print(doc_for(sys.modules['__main__'].__doc__ or ap.format_help(),
-                      next((t for t in argv[:stop] if t in cmds), None)))
+                      next((t for t in argv[:stop] if t in cmds), None), ap))
         sys.exit(0)
     err = ap.error
     def error(msg):               # no command (`knet.py X.net`): the command list, not the flags' usage block
@@ -1121,6 +1154,37 @@ def sym_geometry(libsym, unit, sx, sy, rot, mir):
                 round(sx + max(x for x, _ in q), 2), round(sy + max(y for _, y in q), 2))
     return pins, body
 
+
+_CFG_WARNED = set()
+
+def project_cfg(path, name):
+    """NAME (knet.json / kpcb.json / kdrc.json) beside PATH as a dict: {} when absent; when
+    malformed (bad JSON, not an object) {} and one stderr line per file per run, so a typo
+    never silently drops a table a later reader wanted (kpcb ampacity's ilim)"""
+    cp = os.path.join(os.path.dirname(os.path.abspath(path)), name)
+    try:
+        with open(cp) as fh:
+            cfg = json.load(fh)
+        if isinstance(cfg, dict):
+            return cfg
+        err = f"top level is a {type(cfg).__name__}, not an object"
+    except FileNotFoundError:
+        return {}
+    except (OSError, ValueError) as e:
+        err = e
+    if cp not in _CFG_WARNED:
+        _CFG_WARNED.add(cp)
+        print(f"(ignoring malformed {name}: {err})", file=sys.stderr)
+    return {}
+
+def suppress_map(cfg, off=False):
+    """a knet.json / kpcb.json `suppress` list ('RULE' or 'RULE:TOKEN') as {RULE: {TOKEN}}
+    for suppressed(); {} when off (--no-suppress)"""
+    out = {}
+    for entry in ([] if off else cfg.get('suppress') or []):
+        rule, _, tok = str(entry).partition(':')
+        out.setdefault(rule.strip().upper(), set()).add(tok.strip())
+    return out
 
 def suppressed(f, supp):
     """True if a knet.json `suppress` entry matches this finding: a bare 'RULE'

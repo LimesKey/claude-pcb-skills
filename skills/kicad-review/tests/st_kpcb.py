@@ -275,7 +275,14 @@ def _void_via(out):
 def suite(tmp, mini):
     """Append this file's cases to CASES, yield while the runner runs them, then do the
     ad-hoc checks (the full run only: -k stops at the yield)."""
-    CASES.append(("kpcb help cmd", ['kpcb.py', PCB, 'where', '-h'],          0, ["kpcb.py FILE where U8 J7", "lists every command"]))
+    CASES.append(("kpcb help cmd", ['kpcb.py', PCB, 'where', '-h'],          0, ["kpcb.py FILE where U8 J7", "where flags:", "  --pads ", "lists every command"]))
+    CASES.append(("kpcb help cmd flags", ['kpcb.py', PCB, 'copper', '--help'], 0, ["copper flags:", "  --net NET ", "only these nets"]))
+    bad = os.path.join(tmp.name, 'badcfg')         # a knet.json typo: named once, not a silently lost ilim table
+    os.makedirs(bad)
+    open(os.path.join(bad, 'b.kicad_pcb'), 'w').write(open(PCB).read())
+    open(os.path.join(bad, 'knet.json'), 'w').write('{"ilim": ')
+    CASES.append(("kpcb malformed knet.json", ['kpcb.py', os.path.join(bad, 'b.kicad_pcb'), 'ampacity'], 0,
+                  ["(ignoring malformed knet.json: Expecting value"]))
     CASES.append(("kpcb where --pads", ['kpcb.py', PCB, 'where', 'U1', '--pads'], 0, ["    2     11.500, 11.500  F      0.50x0.60 rot 0  GND"]))
     CASES.append(("kpcb summary zones", ['kpcb.py', PCB2, 'summary'],        0, ["zones  : 1 ", "  F.Cu    GND"]))
     CASES.append(("kpcb check",   ['kpcb.py', PCB, 'check'],                 2, ["4 error, 10 warn, 3 info"]))

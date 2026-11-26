@@ -80,10 +80,10 @@ after a big rewire.
 Exit codes: 0 clean, 1 not found, 2 `check` found an ERROR (or `draw` produced a
 diagram that fails its own layout/netlist verification), 3 bad file/spec.
 """
-import sys, os, re, csv, json, argparse, signal
+import sys, re, csv, json, argparse, signal
 from collections import Counter, defaultdict, deque
 
-from kcommon import Netlist, natkey, parse_args, refrange, smart_re, trunc
+from kcommon import Netlist, natkey, parse_args, project_cfg, refrange, smart_re, suppress_map, trunc
 from knet_power import c_divider, c_i2c, c_powertree, c_rails
 from knet_check import c_check
 from knet_draw import c_draw
@@ -640,14 +640,16 @@ def main():
     ap.add_argument('file')
     ap.add_argument('cmd', choices=list(CMDS))
     ap.add_argument('args', nargs='*')
-    ap.add_argument('-d', '--depth', type=int, default=2)
+    ap.add_argument('-d', '--depth', type=int, default=2, help='for `walk`/`draw`: hops outward (2)')
     ap.add_argument('-o', '--out', default='', help='output path for `draw` (svg)')
-    ap.add_argument('--through', default=None)
-    ap.add_argument('--fanout', type=int, default=None)
+    ap.add_argument('--through', default=None, help='for `walk`/`path`: ref prefixes treated as pass-through '
+                    '(R,L,FB,F,FL,JP; add C, D as needed)')
+    ap.add_argument('--fanout', type=int, default=None, help='for `walk`/`path`/`check`/`divider`: a net with more '
+                    'than N nodes is a rail, reported, not expanded (8)')
     ap.add_argument('--as-drawn', action='store_true',
                     help='traverse DNP parts as if populated (default: open circuits)')
     ap.add_argument('--no-dnp', action='store_true', help=argparse.SUPPRESS)  # old default, now a no-op
-    ap.add_argument('--rail', default='', help="e.g. '+5V=5,VCC_RF=3.3'")
+    ap.add_argument('--rail', default='', help="for `check`: override/add rail voltages, e.g. '+5V=5,VCC_RF=3.3'")
     ap.add_argument('--vth', type=float, default=None,
                     help="for `divider` on a 3-resistor UVLO/OVLO string: the IC's "
                          "comparator threshold in volts, from the datasheet")
@@ -659,12 +661,12 @@ def main():
                     help="for `bom`: only components on this hierarchical sheet path and "
                          "below, e.g. '/Root/Rails/' (bom is board-wide by default)")
     ap.add_argument('--csv', default='', help='for `bom`: a fab BOM CSV to check against the netlist')
-    ap.add_argument('--peer-max', type=int, default=12, help='max peers listed per net in `around`')
+    ap.add_argument('--peer-max', type=int, default=12, help='for `around`: max peers listed per net (12)')
     ap.add_argument('--stack', default='', help='for `revpol`: series cells, e.g. BT1,BT2 (default: every BT*)')
     ap.add_argument('--pair', default='', help='for `revpol`: a +/- net pair instead, e.g. +PACK,-BATT')
     ap.add_argument('--volts', type=float, default=None, help='for `revpol --pair`: the pair voltage')
     ap.add_argument('--vcell', type=float, default=4.2, help='for `revpol`: volts per cell (4.2)')
-    ap.add_argument('--max', type=int, default=12, help='for `revpol`: lines per section (12)')
+    ap.add_argument('--max', type=int, default=12, help='for `revpol`: lines per section; for `bom --csv`: a quarter of the differ rows (12)')
     ap.add_argument('--only', default='')
     ap.add_argument('--skip', default='')
     ap.add_argument('--json', action='store_true')
@@ -683,13 +685,7 @@ def main():
         use = next((ln.strip() for ln in __doc__.splitlines() if ln.split()[2:3] == [a.cmd] and 'knet.py' in ln), a.cmd)
         print(f"usage: {use.split('  ')[0]}"); return 1
     # project config: knet.json next to the netlist. CLI flags win over config.
-    cfg = {}
-    try:
-        cp = os.path.join(os.path.dirname(os.path.abspath(a.file)), 'knet.json')
-        if os.path.exists(cp):
-            cfg = json.load(open(cp))
-    except Exception as e:
-        print(f"(ignoring malformed knet.json: {e})", file=sys.stderr)
+    cfg = project_cfg(a.file, 'knet.json')
     if a.through is None:
         a.through = cfg.get('through', 'R,L,FB,F,FL,JP')
     if a.fanout is None:
@@ -708,11 +704,7 @@ def main():
             except ValueError:
                 pass
     a.cfg = cfg
-    a.suppress = {}
-    if not a.no_suppress:
-        for entry in cfg.get('suppress') or []:
-            rule, _, tok = str(entry).partition(':')
-            a.suppress.setdefault(rule.strip().upper(), set()).add(tok.strip())
+    a.suppress = suppress_map(cfg, a.no_suppress)
     try:
         nl = Netlist(a.file, rail_overrides=ov, no_dnp=not a.as_drawn, refresh=a.cmd != 'diff')
     except FileNotFoundError:

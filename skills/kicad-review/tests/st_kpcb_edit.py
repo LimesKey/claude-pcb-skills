@@ -477,8 +477,8 @@ def suite(tmp, mini):
     code, out = run(['kpcb.py', zm, 'zonemerge', 'zf', 'zg', '-o', zmo2], nocli)
     mz = {z.uuid: z for z in kpcb_board.Board(zmo2).zones} if os.path.exists(zmo2) else {}
     check(code == 0 and mz.get('zg') and mz['zg'][1] == ['F.Cu'] and len(mz['zg'].outline) == 8
-          and mz['zf'][1] == ['B.Cu'] and len(mz['zf'].outline) == 4,
-          "zonemerge -o split: zg takes the F.Cu union, zf stays on B.Cu with its outline")
+          and mz['zf'][1] == ['B.Cu'] and len(mz['zf'].outline) == 4 and mz['zg'].name == 'hand2',
+          "zonemerge -o split: zg takes the F.Cu union and hand2's name (not its band's), zf stays on B.Cu")
     code, out = run(['kpcb.py', os.path.join(tmp.name, 'faceted.kicad_pcb'), 'zoneshape', '--over-bar', '-o', fzo], nocli)
     oz = {z.uuid: z for z in kpcb_board.Board(fzo).zones} if os.path.exists(fzo) else {}
     check(code == 0 and 'za' in oz and len(oz['za'].outline) == 8 and len(oz['zb'].outline) == 4,

@@ -164,7 +164,7 @@ def mini_project(d):
 
 
 def _tab_fp(ref, x, y, pads, crt=(.4, .4), rot=0):
-    """a footprint in KiCad's tab layout (the writers edit by span); pads [(num, dx, dy, sx, sy, net)]"""
+    """a footprint in KiCad's tab layout (the writers edit by span); pads [(num, dx, dy, sx, sy, net[, pintype])]"""
     import uuid as U
     u = lambda: f'(uuid "{U.uuid4()}")'                 # noqa: E731
     return (f'\t(footprint "x:P"\n\t\t(layer "F.Cu")\n\t\t{u()}\n\t\t(at {x} {y}' + (f' {rot}' if rot else '') + ')\n'
@@ -173,7 +173,8 @@ def _tab_fp(ref, x, y, pads, crt=(.4, .4), rot=0):
             f'\t\t(fp_rect\n\t\t\t(start {-crt[0]} {-crt[1]})\n\t\t\t(end {crt[0]} {crt[1]})\n\t\t\t(stroke\n'
             f'\t\t\t\t(width 0.05)\n\t\t\t\t(type solid)\n\t\t\t)\n\t\t\t(layer "F.CrtYd")\n\t\t\t{u()}\n\t\t)\n'
             + ''.join(f'\t\t(pad "{n}" smd rect\n\t\t\t(at {dx} {dy})\n\t\t\t(size {sx} {sy})\n\t\t\t(layers "F.Cu")\n'
-                      f'\t\t\t(net "{net}")\n\t\t\t{u()}\n\t\t)\n' for n, dx, dy, sx, sy, net in pads) + '\t)\n')
+                      f'\t\t\t(net "{net}")\n' + ''.join(f'\t\t\t(pintype "{t}")\n' for t in pt) + f'\t\t\t{u()}\n\t\t)\n'
+                      for n, dx, dy, sx, sy, net, *pt in pads) + '\t)\n')
 
 
 def _tab_board(d, name, w, h, body):

@@ -1,7 +1,7 @@
 """kpcb.py `ampacity`: IPC-2221 current capacity of a routed net (copper graph + bottleneck)."""
 import json, math
 from collections import Counter, defaultdict
-from kcommon import natkey, prefix, parse_value
+from kcommon import natkey, prefix, parse_value, project_cfg
 from kpcb_board import (_f, _find_pad, ipc_current, ipc_width, MIL, POUR_MIN, RHO_CU, thick_of,
                         via_current)
 from kpcb_copper import Copper, _q
@@ -675,7 +675,7 @@ def _derived_budgets(b):
     kpcb.json current{}: a fuse's rated (hold) current on both its nets, an eFuse's ILIM (the
     max of knet.json's ilim row for its family and ILIM resistor) on its OUT net. Upper
     bounds - what the protection lets through, not what the design draws."""
-    import os, re
+    import re
     out = {}
     def put(net, amps, why):
         if net and not net.startswith('unconnected-') and amps > out.get(net, (0, ''))[0]:
@@ -687,10 +687,7 @@ def _derived_budgets(b):
                 amps = float(m[1]) / (1000 if m[2] else 1)
                 for p in f.pads:
                     put(p['net'], amps, f"{f.ref} {f.value}")
-    try:
-        ilim = json.load(open(os.path.join(os.path.dirname(os.path.abspath(b.path)), 'knet.json'))).get('ilim') or {}
-    except (OSError, ValueError):
-        ilim = {}
+    ilim = project_cfg(b.path, 'knet.json').get('ilim') or {}
     for f in b.placed():
         fam = next((k for k in ilim if k.upper() in (f.value or '').upper()), None)
         if not fam:

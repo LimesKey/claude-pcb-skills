@@ -628,7 +628,7 @@ def cut_off(b, kill, absent):
     return out
 
 
-def prune(b, kill, absent=frozenset(), planes=True, test=()):
+def prune(b, kill, absent=frozenset(), planes=True, test=(), memo=None):
     """kill (ids of b.tracks/b.vias to delete) grown by what that leaves dangling: a track
     end touching nothing of its net (no pad, via, track junction or fill), a via joining
     fewer than two layers - spreading only from removed copper (and the pads of `absent`
@@ -637,7 +637,9 @@ def prune(b, kill, absent=frozenset(), planes=True, test=()):
     leaves the plane stubs to a later call). test [('t'|'v', item)]: copper to test as it lies,
     nothing removed first - with kill empty, KiCad's own dangling pass over that copper (a
     deadend row: what Cleanup takes of it), so no _newly_dead: KiCad keeps a cycle whose every
-    end joins something. Returns the grown set."""
+    end joins something. memo: a dict a caller probing many kills on one unchanged board passes
+    (and clears when the board changes) to keep _newly_dead's dead copper before the rip.
+    Returns the grown set."""
     from kpcb_board import PolyIndex
     kill = set(kill)
     nets = {o['net'] for o in b.tracks + b.vias if id(o) in kill} | \
@@ -675,20 +677,20 @@ def prune(b, kill, absent=frozenset(), planes=True, test=()):
     frontier = [('t', t) for t in b.tracks if id(t) in kill] + [('v', v) for v in b.vias if id(v) in kill] + \
         [('p', p) for f in b.fps.values() if f.ref in absent for p in f.pads if p['net'] in nets]
     first = {id(o): (k, o) for k, o in test}         # tested themselves, first round only: not their neighbours
+    live = [('t', t) for t in b.tracks if t['net'] in nets and id(t) not in kill and t['w'] > 0] + \
+           [('v', v) for v in b.vias if v['net'] in nets and id(v) not in kill]
+    G = defaultdict(list)                            # (net, cx, cy) -> items, 1 mm cells; built once,
+    for x in live + [pp for n in nets for pp in pads[n]]:    # a round's kills skipped (pads never die)
+        for c in cell_keys(box_of(x)):
+            G[(x[1]['net'], *c)].append(x)
+    def near(net, bb):
+        seen = set()
+        for c in cell_keys(bb):
+            for x in G.get((net, *c), ()):
+                if id(x[1]) not in seen and id(x[1]) not in kill:
+                    seen.add(id(x[1]))
+                    yield x
     while frontier or first:
-        live = [('t', t) for t in b.tracks if t['net'] in nets and id(t) not in kill and t['w'] > 0] + \
-               [('v', v) for v in b.vias if v['net'] in nets and id(v) not in kill]
-        G = defaultdict(list)                        # (net, cx, cy) -> items, 1 mm cells
-        for x in live + [pp for n in nets for pp in pads[n]]:
-            for c in cell_keys(box_of(x)):
-                G[(x[1]['net'], *c)].append(x)
-        def near(net, bb):
-            seen = set()
-            for c in cell_keys(bb):
-                for x in G.get((net, *c), ()):
-                    if id(x[1]) not in seen:
-                        seen.add(id(x[1]))
-                        yield x
         cand = {id(x[1]): x for f0 in frontier for x in near(f0[1]['net'], box_of(f0))     # touching it, not
                 if x[0] != 'p' and (on(x) & on(f0)) and _touch(x, f0)}                    # merely its box
         cand.update(first)
@@ -726,10 +728,10 @@ def prune(b, kill, absent=frozenset(), planes=True, test=()):
                     dead.append(it)
         kill |= {id(x[1]) for x in dead}
         frontier = dead
-    return kill if test else kill | _newly_dead(b, kill, absent, nets, planes)
+    return kill if test else kill | _newly_dead(b, kill, absent, nets, planes, memo)
 
 
-def _newly_dead(b, kill, absent, nets, planes=True):
+def _newly_dead(b, kill, absent, nets, planes=True, memo=None):
     """what the leaf prune cannot see: copper the rip leaves serving no pad though every end
     still touches something - a two-layer run through two vias, a cycle (kpcb_copper.dead_copper),
     a plane-net stub whose free end lies in its own fill (the leaf prune counts fill as a join:
@@ -749,7 +751,11 @@ def _newly_dead(b, kill, absent, nets, planes=True):
     def ids(bd, n):
         ds = dead_copper(bd, n)
         return {id(o) for d in (plane_stubs(ds) if n in pl else ds) for o in [t for t, _L, k in d['tracks'] if k is None] + d['vias']}
-    return {i for n in todo for i in ids(after, n) - ids(b, n)}
+    memo = {} if memo is None else memo
+    for n in todo:
+        if n not in memo:
+            memo[n] = ids(b, n)
+    return {i for n in todo for i in ids(after, n) - memo[n]}
 
 
 def tear_edits(t, trk):

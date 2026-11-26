@@ -27,11 +27,11 @@ nothing in ERC looks at text.
 Writing a .kicad_sch is a project edit: OUT must not be a git-tracked file.
 Exit: 0 clean, 2 an ERROR or a stale table, 3 bad input.
 """
-import sys, os, re, json, math, argparse, uuid, subprocess
+import sys, os, re, math, argparse, uuid, subprocess
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from kcommon import Netlist, load_sexp, kids, kid, val, parse_args  # noqa: E402
+from kcommon import Netlist, load_sexp, kids, kid, val, parse_args, project_cfg  # noqa: E402
 
 REF = re.compile(r'\b([A-Z]{1,3})(\d+)(?:\s*-\s*\1?(\d+))?\b')
 ADDR = re.compile(r'^\s*0x[0-9A-Fa-f]{2}(\s*,\s*0x[0-9A-Fa-f]{2})*\s*$')
@@ -84,11 +84,7 @@ def c_check(nl, a):
         print("no part-less sheet found (give --all to check every sheet's text)"); return 1
     prefixes = {c['prefix'] for c in nl.comps.values()}
     import knet_power
-    cfg = {}
-    try:
-        cfg = json.load(open(os.path.join(d, 'knet.json')))
-    except (OSError, ValueError):
-        pass
+    cfg = project_cfg(nl.path, 'knet.json')
     table = dict(knet_power.I2C_PARTS, **(cfg.get('i2c') or {}))
     P = knet_power.power_nets(nl)
     errs, seen = [], 0
@@ -363,12 +359,7 @@ def c_draw(nl, a):
         print(f"{a.out} is git-tracked (a project sheet): write a new file on a scratch copy"); return 3
     import kcommon
     pg = Page()
-    cfg = {}
-    try:
-        cfg = json.load(open(os.path.join(os.path.dirname(os.path.abspath(nl.path)), 'knet.json')))
-    except (OSError, ValueError):
-        pass
-    a.cfg = cfg
+    a.cfg = project_cfg(nl.path, 'knet.json')
     n = draw_powertree(nl, a, pg) if what == 'powertree' else draw_i2c(nl, a, pg)
     d = os.path.dirname(os.path.abspath(nl.path))
     like = os.path.join(d, kcommon.project_root(d)) if kcommon.project_root(d) else None   # its header: same version

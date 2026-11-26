@@ -112,8 +112,10 @@ def pair_board(d):
     return p
 
 
-def uniform_board(d):
-    """PWR_HIGH (1 mm) runs P (y 5) and P2 (y 15), each 1.5 / 1.0 / 1.5 mm between test points;
+def uniform_board(d, stub=False):
+    """stub: P4 alone, TP (2,18) -1.5- via (8,18) -0.05 mm stub at 0.8- (8.05,18) -0.8, boxed in
+    by a Q2 track at y 18.75- (12,18) -1.5- TQ (18,18): the stub alone at the class 1.0 is a disc.
+    Else: PWR_HIGH (1 mm) runs P (y 5) and P2 (y 15), each 1.5 / 1.0 / 1.5 mm between test points;
     a foreign Q track at y 16 boxes P2's middle in at 1.0. P3 (y 10) is 4 / 1 / 4 mm with a
     0.2 mm R track 1.8 mm off its middle: a 4 mm middle's edge would cross it, though R lies
     outside the centreline box + 1 mm that Exact once gathered items in. widen --uniform-power
@@ -126,8 +128,30 @@ def uniform_board(d):
     run = lambda n, y, wo=1.5: (_tab_fp('TP' + n, 2, y, [('1', 0, 0, 2, 2, 'P' + n)], (1.1, 1.1))   # noqa: E731
                         + _tab_fp('TQ' + n, 18, y, [('1', 0, 0, 2, 2, 'P' + n)], (1.1, 1.1))
                         + _tseg(2, y, 8, y, 'P' + n, wo) + _tseg(8, y, 14, y, 'P' + n, 1.0) + _tseg(14, y, 18, y, 'P' + n, wo))
+    if stub:
+        return _tab_board(d, 'u.kicad_pcb', 20, 20, _tab_fp('TP4', 2, 18, [('1', 0, 0, 2, 2, 'P4')], (1.1, 1.1))
+                          + _tab_fp('TQ4', 18, 18, [('1', 0, 0, 2, 2, 'P4')], (1.1, 1.1)) + _tvia(8, 18, 'P4')
+                          + _tseg(2, 18, 8, 18, 'P4', 1.5) + _tseg(8, 18, 8.05, 18, 'P4', 0.8)
+                          + _tseg(8.05, 18, 12, 18, 'P4', 0.8) + _tseg(12, 18, 18, 18, 'P4', 1.5)
+                          + _tseg(9, 18.75, 11, 18.75, 'Q2'))
     return _tab_board(d, 'u.kicad_pcb', 20, 20, run('', 5) + run('2', 15) + run('3', 10, 4.0)
                       + _tseg(9, 16, 13, 16, 'Q') + _tseg(10, 11.8, 12, 11.8, 'R'))
+
+
+def caploop_board(d):
+    """SIGA: C1.1 (5,5) runs 4.5 mm straight to U1.5 (9.5,5, power_in), 1.41 mm to U1.4 (6,6) and
+    U1.4 reaches U1.5 in 3.91 mm: longest-first cut C1's run to its supply pin; it must cut U1.4's.
+    SIGB: TP1.1 (2,12) <- N (4,12) -> TP2.1 (3,12.8), and a 6 mm detour N (4,14) (2,14) TP1.1: cutting
+    it or N-TP1 leaves N a two-track V (> 90 deg), cutting N-TP2 strands TP2: nothing goes"""
+    sd = _typed_dir(os.path.join(d, 'caploop'))
+    fp = lambda r, x, y, net, pt=(): _tab_fp(r, x, y, [('1', 0, 0, .4, .4, net, *pt)], (.3, .3))   # noqa: E731
+    body = (fp('C1', 5, 5, 'SIGA') + fp('U1', 9.5, 5, 'SIGA', ('power_in',)) + fp('U2', 6, 6, 'SIGA', ('input',))
+            + _tseg(5, 5, 9.5, 5, 'SIGA') + _tseg(5, 5, 6, 6, 'SIGA') + _tseg(6, 6, 8.5, 6, 'SIGA')
+            + _tseg(8.5, 6, 9.5, 5, 'SIGA')
+            + fp('TP1', 2, 12, 'SIGB') + fp('TP2', 3, 12.8, 'SIGB') + _tseg(4, 12, 2, 12, 'SIGB')
+            + _tseg(4, 12, 3, 12.8, 'SIGB') + _tseg(4, 12, 4, 14, 'SIGB') + _tseg(4, 14, 2, 14, 'SIGB')
+            + _tseg(2, 14, 2, 12, 'SIGB'))
+    return _tab_board(sd, 't.kicad_pcb', 20, 20, body)
 
 
 def jog_board(d, nudge=False):
@@ -605,6 +629,8 @@ def suite(tmp, mini):
     CASES.append(("kpcb widen", ['kpcb.py', sb, 'widen', 'S'], 0, ["widen: 5 track(s)", "0.15 -> 0.2"]))
     CASES.append(("kpcb widen --uniform-power", ['kpcb.py', uniform_board(T('uni')), 'widen', '--uniform-power'], 0,
                   ["widen: 1 track(s)", "4 width step(s) left mid-run in power classes", "P    ", "1 -> 1.5"]))
+    CASES.append(("kpcb widen --uniform-power via stub", ['kpcb.py', uniform_board(T('unistub'), True), 'widen',
+                                                          '--uniform-power'], 0, ["widen: 0 track(s); copper added (mm2) by class: none"]))
     CASES.append(("kpcb loops", ['kpcb.py', sb, 'loops'], 0, ["loops: 1 redundant chain(s) on 1 net(s)", "L "]))
     CASES.append(("kpcb loops -o", ['kpcb.py', sb, 'loops', '-o', T('typed/s3.kicad_pcb')], 0,
                   ["loops: 3 item(s) selected", "-> "]))
@@ -629,6 +655,10 @@ def suite(tmp, mini):
     CASES.append(("kpcb tracks pad ends", ['kpcb.py', gb, 'tracks', '--kind', 'pad'], 0,
                   ["ends at a pad edge        3 visible  (1 more end inside their pad off centre", "0.35 mm off TP7.1",
                    "fix: smooth --pads"]))
+    cl = caploop_board(T('typed'))
+    CASES.append(("kpcb loops keeps a cap's supply run", ['kpcb.py', cl, 'loops', 'SIGA'], 0,
+                  ["loops: 1 redundant chain(s) on 1 net(s), 3.9 mm"]))
+    CASES.append(("kpcb loops leaves no acute corner", ['kpcb.py', cl, 'loops', 'SIGB'], 0, ["loops: no redundant chain"]))
     CASES.append(("kpcb loops keeps a pad's only entry", ['kpcb.py', gb, 'loops', 'K'], 0, ["loops: no redundant chain"]))
     CASES.append(("kpcb smooth --pads", ['kpcb.py', gb, 'smooth', '--pads', '-o', T('typed/g2.kicad_pcb')], 0,
                   ["pads: 3 of 3 trace end(s)", "TP12.1", "wrote "]))

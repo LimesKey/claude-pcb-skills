@@ -171,7 +171,7 @@ from collections import Counter, defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 try:
-    from kcommon import refrange, natkey, trunc, prefix, unesc_disp, print_findings, parse_args, box_arg
+    from kcommon import refrange, natkey, trunc, prefix, unesc_disp, print_findings, parse_args, box_arg, project_cfg, suppress_map
 except ImportError:                                     # pragma: no cover
     print("kpcb.py needs kcommon.py beside it (shared parser + finding formatter)",
           file=sys.stderr)
@@ -999,7 +999,8 @@ def main():
     ap.add_argument('cmd', choices=list(CMDS))
     ap.add_argument('args', nargs='*')
     ap.add_argument('-r', '--radius', type=float, default=5.0,
-                    help='for `where`: neighbour search radius in mm (5)')
+                    help='for `where`/`copper`/`view`: radius round X,Y or the parts, mm (5); for `silk`/`place`/`stitch`/'
+                         '`pinlabels`/`label`/`tracks --view`: its search or panel radius (each its own default)')
     ap.add_argument('--redraw', action='store_true', help='for `zoneshape ZONE`: redraw the outline along the copper '
                     'clearance, board edge and out-ranking or same-net fills its fill keeps to anyway (far fewer corners)')
     ap.add_argument('--over-bar', action='store_true', help='for `zoneshape`: propose every zone over the bar '
@@ -1008,8 +1009,9 @@ def main():
                     'from the new edge, mm (default 0.1; edges within eps/2 of 0/45/90 snap to it)')
     ap.add_argument('--max', type=int, default=12,
                     help='max lines per rule / per neighbour list before a +N tail (12)')
-    ap.add_argument('--cols', type=int, default=48, help='for `map`: grid width (48)')
-    ap.add_argument('--side', default=None, help='for `map` and `view --layers silk`: f (front, default) or b; for `place`: f, b or both (default)')
+    ap.add_argument('--cols', type=int, default=48, help='for `map`/`ic`: grid width (48; `ic` caps it at 64)')
+    ap.add_argument('--side', default=None, help='for `map` and `view --layers silk`: f (front, default) or b; for `place`: f, b or both (default); '
+                    'for `label X,Y`: the side the label goes on (f)')
     ap.add_argument('--near', default='', help='for `place`: the part (or X,Y) this one serves, e.g. the IC a cap decouples; '
                     'for `label`: the part whose designator spot the label takes')
     ap.add_argument('--rots', default='', help='for `place`: rotations to try (0,90,180,270)')
@@ -1031,9 +1033,9 @@ def main():
     ap.add_argument('--ncout', type=int, default=3, help='for `ic`: how many output caps to place off a rail (3)')
     ap.add_argument('--assoc', type=int, default=6, help="for `ic`: a net with more nodes than this is a rail, not the IC's own net (6)")
     ap.add_argument('--amps', type=float, default=None,
-                    help='for `ampacity`: required current on the named net(s), A')
+                    help='for `ampacity`: required current on the named net(s), A; for `fatten`: the current the path carries')
     ap.add_argument('--dt', type=float, default=10.0,
-                    help='for `ampacity`: allowed temperature rise, C (10)')
+                    help='for `ampacity`/`fatten --amps`: allowed temperature rise, C (10)')
     ap.add_argument('--plating', type=float, default=20.0,
                     help='for `ampacity`: via barrel plating thickness, um (20)')
     ap.add_argument('--vdrop', type=float, default=0.25,
@@ -1052,9 +1054,9 @@ def main():
                     help='for `ampacity --fills`: grid cell, mm (0.1 with numpy, else 0.2); for `congest`: '
                          'the map cell, mm (2)')
     ap.add_argument('--net', action='append', default=[],
-                    help='for `ampacity`: net name, repeatable. For a name starting with '
-                         '"-", use =, e.g. --net=-BATT (a space before the dash still '
-                         'confuses argparse, as does the positional arg)')
+                    help='for `ampacity`/`net`/`rf`/`fatten`: net name, repeatable, as the positional NET; for `copper` '
+                         'and `view --tracks`: only these nets; for `zones --voids`: the plane net (default: the '
+                         'largest pour). A name starting with "-" also works bare (`--net -BATT`) or as --net=-BATT')
     ap.add_argument('--freq', type=float, default=None,
                     help='for `rf`: signal frequency in MHz, for the lambda/20 fence check '
                          '(default: inferred from the net/sheet name)')
@@ -1068,11 +1070,14 @@ def main():
                     help="for `view`: comma list of layers (default: the part's side Cu/SilkS/Fab/CrtYd + Edge.Cuts; "
                          "'silk': that side's silkscreen drawn from the model, pads, bodies, outlines, texts, flagged ones red); "
                          "for `map`: one copper layer -> its copper occupancy (where routes can go); "
-                         "for `route`: the layers it may use")
+                         "for `route`/`fatten`/`congest`/`refslots`: the layers it may use or reads; "
+                         "for `copper`/`smooth`: only these layers; for `vscan`: the one layer drawn")
     ap.add_argument('--box', default='', type=box_arg(False), help='for `view`: X0,Y0,X1,Y1 board mm instead of refs; '
                                               'for `fatten`/`stitch`/`ripup`: only tracks / vias in this box; '
-                                              'for `tracks`: the census of this region; for `diff`: vias and tracks here')
-    ap.add_argument('--px', type=float, default=20, help='for `view`: pixels per mm (plot: ~1200 px across the box; 60 for --tracks, 120 for --sites)')
+                                              'for `tracks`: the census of this region; for `diff`: vias and tracks here; '
+                                              'for `smooth`/`silk`/`vscan`: only this region')
+    ap.add_argument('--px', type=float, default=20, help='for `view`: pixels per mm (plot: ~1200 px across the box; 60 for --tracks, 120 for --sites); '
+                    'for `tracks --view`: its panels (120)')
     ap.add_argument('--by-net', action='store_true', help='for `view`: the copper on --layers (default all), fills '
                     'included, one hue per net, GND grey, a legend of the largest nets in the box')
     ap.add_argument('--tracks', action='store_true', help='for `view`: draw tracks/pads/vias from the board model, '
@@ -1097,7 +1102,7 @@ def main():
                          'for `vscan`: the track width a cell must clear (0.15); '
                          'for `widen`: the target for signal nets (0.2)')
     ap.add_argument('--via', default='', help='for `route`, `stitch` and `vscan`: via SIZE/DRILL, mm (default: netclass, or 0.5/0.2)')
-    ap.add_argument('--via-cost', type=float, default=1.5, help='for `route`: a via costs this many mm (1.5)')
+    ap.add_argument('--via-cost', type=float, default=1.5, help='for `route`/`reroute`: a via costs this many mm (1.5)')
     ap.add_argument('--turn', type=float, default=0.3, help='for `route`: a bend costs this many grid cells (0.3)')
     ap.add_argument('--pour-cost', type=float, default=0.6,
                     help='for `route`: extra cost per mm through a foreign pour (0.6 = 1.6x)')
@@ -1154,7 +1159,8 @@ def main():
     ap.add_argument('--overlaps', action='store_true', help='for `smooth`: drop doubled same-net copper, trim hairpin tips')
     ap.add_argument('--corners', action='store_true', help='for `smooth`: cut every visible corner >= 46 deg at a two-track node')
     ap.add_argument('--square', action='store_true', help='for `smooth`: slide an off-45 segment\'s pad end onto a 45 inside the pad')
-    ap.add_argument('--pads', action='store_true', help='for `smooth`: run a dead-end trace that stops at a pad edge onto the pad centre')
+    ap.add_argument('--pads', action='store_true', help='for `smooth`: run a dead-end trace that stops at a pad edge onto the pad centre; '
+                    'for `where`: every pad, absolute xy, size, pin, net')
     ap.add_argument('--micro', action='store_true', help='for `smooth`: merge segments under 0.05 mm into a neighbour '
                     '(a join stays a join), delete one only when wholly under other same-net copper')
     ap.add_argument('--jogs', action='store_true', help='for `smooth`: collapse lane jogs, moving one blocking free GND via')
@@ -1209,13 +1215,7 @@ def main():
     a = parse_args(ap)
     if a.help:
         print(__doc__); return
-    cfg = {}
-    try:
-        cp = os.path.join(os.path.dirname(os.path.abspath(a.file)), 'kpcb.json')
-        if os.path.exists(cp):
-            cfg = json.load(open(cp))
-    except Exception as e:
-        print(f"(ignoring malformed kpcb.json: {e})", file=sys.stderr)
+    cfg = project_cfg(a.file, 'kpcb.json')
     for name, dflt, _ in LIMITS:                # the command line wins, then kpcb.json
         if getattr(a, name) is None:
             try:
@@ -1224,11 +1224,7 @@ def main():
                 setattr(a, name, dflt)
     a.current = cfg.get('current') if isinstance(cfg.get('current'), dict) else {}
     a.height_cfg = cfg.get('height') if isinstance(cfg.get('height'), dict) else {}
-    a.suppress = {}
-    if not a.no_suppress:
-        for entry in cfg.get('suppress') or []:
-            rule, _, tok = str(entry).partition(':')
-            a.suppress.setdefault(rule.strip().upper(), set()).add(tok.strip())
+    a.suppress = suppress_map(cfg, a.no_suppress)
     try:
         b = Board(a.file)
     except FileNotFoundError:

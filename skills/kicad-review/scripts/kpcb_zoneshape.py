@@ -25,7 +25,7 @@ import math, os, re, shutil, subprocess, tempfile, uuid
 from kpcb_board import Board, inside, poly_area
 from kpcb_fillet import chains, clean, fillet_outline, octilinear, simple, smooth_fill, _ring_dist
 from kpcb_route import simplify
-from kpcb_edit import PcbText, num
+from kpcb_edit import PcbText, num, qs
 from kcommon import kicad_cli, trunc
 
 MICRO = 0.3           # tracks --kind zonepts: a designer's zones are <= 22 corners, <= 3 edges under this
@@ -399,6 +399,9 @@ def c_zonemerge(b, a):
     merged = _reshape(hs, Q, rad)
     if merged is None:
         print("  nothing written: the zone outline holds arcs or no polygon"); return 1
+    band = lambda z: (z.name or '').startswith(('route ', 'fatten '))   # noqa: E731  a script's band name
+    if band(hi) and lo.name and not band(lo):          # keep the designer's name, not the band's
+        merged = re.sub(r'\(name "(?:[^"\\]|\\.)*"\)', lambda _m: f'(name {qs(lo.name)})', merged, count=1)
     t.sub(hi.uuid, _layers(merged, shared))
     if la - lb:                                # hi's other layers: its old outline, under a new uuid
         t.add(re.sub(r'\(uuid "[^"]+"\)', f'(uuid "{uuid.uuid4()}")', _layers(_nofill(hs), la - lb, b.copper), count=1))
