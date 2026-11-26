@@ -49,18 +49,27 @@ def drag_set(b, f):
     via that moves; an end on a via that stays is tied to it and stays too. stay: such ends
     on an arc (an arc cannot bend), counted."""
     cu = b.copper
-    vias = [v for v in b.vias if v['net'] and any(p['net'] == v['net'] and _on_pad(p, (v['x'], v['y'])) for p in f.pads)]
+    # only a via or track end on f's pads (or on a via in them) can be mine: skip other nets and
+    # what lies outside the pads' box (exact; tidy's 36 calls did 33.7M distance tests, 2026-11-26)
+    nets = {p['net'] for p in f.pads if p['net']}
+    pb = grow(bbox([q for p in f.pads for bx in (pad_box(p),) for q in (bx[:2], bx[2:])]), 1e-3) if f.pads else None
+    inb = lambda e, bb: bb[0] <= e[0] <= bb[2] and bb[1] <= e[1] <= bb[3]     # noqa: E731
+    vias = [v for v in b.vias if v['net'] in nets and inb((v['x'], v['y']), pb) and
+            any(p['net'] == v['net'] and _on_pad(p, (v['x'], v['y'])) for p in f.pads)]
     vid = {id(v) for v in vias}
     vnet = defaultdict(list)
     for v in b.vias:
         vnet[v['net']].append(v)
+    bb = grow(pb, max((v['size'] / 2 for v in vias), default=0.0)) if f.pads else None
     ends, stay = [], 0
     for t in b.tracks:
-        if not t['net']:
+        if t['net'] not in nets:
             continue
         mine = []
         for k in ('a', 'b'):
             e = t[k]
+            if not inb(e, bb):
+                continue
             on = [v for v in vnet[t['net']] if math.dist(e, (v['x'], v['y'])) <= v['size'] / 2
                   and t['layer'] in via_layers(v, cu)]
             if on:

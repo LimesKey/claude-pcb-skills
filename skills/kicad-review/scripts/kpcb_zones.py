@@ -1,7 +1,7 @@
 """kpcb.py `zones`: per-layer pour coverage, or coverage under one footprint."""
 import os, re, json, glob, math
 from collections import defaultdict, Counter
-from kcommon import GND_RE, rail_voltage, load_sexp, kids, kid, trunc, unesc_disp
+from kcommon import GND_RE, rail_voltage, kid, trunc, unesc_disp
 from kpcb_board import (_sample_grid, bbox, ctr, hit, inside, overlap_area, point_in_poly,
                         poly_area, PolyIndex, pt_seg_dist, xf)
 from kpcb_copper import _local, _reach
@@ -204,12 +204,18 @@ def _clearance_build(b):
     typed = _type_rules(d)[::-1]                        # last in the file wins
     outer = b.outer
     dflt = (cls.get('Default') or {}).get('clearance') or 0.2
+    ncl = {}                                            # net -> its netclass clearance (3.5M asks a movecheck --scan)
+
+    def net_clr(n):
+        if n not in ncl:
+            ncl[n] = (cls.get(b.netclass(n) or 'Default') or {}).get('clearance') or dflt
+        return ncl[n]
 
     def clr(n1, n2, k1=None, k2=None, ly=None, o1=0.0, o2=0.0):
         if o1 or o2:                                    # a local override beats netclass and rules
             return max(o1 or 0.0, o2 or 0.0, bmin)
-        c = max((cls.get(b.netclass(n) or 'Default') or {}).get('clearance') or dflt for n in (n1, n2))
-        pr = pair.get(frozenset((n1, n2)), 0)
+        c = max(net_clr(n1), net_clr(n2))
+        pr = pair.get(frozenset((n1, n2)), 0) if pair else 0
         if pr or not (k1 and k2 and ly):
             return max(c, pr)
         for scope, kinds, mn in typed:
@@ -225,7 +231,6 @@ def _keepouts(b, tracks=False):
     """[(layers, PolyIndex, vias_blocked, pour_blocked)] from board and footprint rule areas,
     plus tracks_blocked as a 5th item when `tracks` (the router asks)"""
     out = []
-    root = load_sexp(b.path)
     def add(z, T):
         ko = kid(z, 'keepout')
         pts = [T(float(q[1]), float(q[2])) for q in (kid(kid(z, 'polygon') or [], 'pts') or [])[1:]
@@ -236,14 +241,11 @@ def _keepouts(b, tracks=False):
             out.append((set(lays) if '*.Cu' not in lays else set(b.copper), PolyIndex(pts),
                         rule.get('vias') == 'not_allowed', rule.get('copperpour') == 'not_allowed')
                        + ((rule.get('tracks') == 'not_allowed',) if tracks else ()))
-    for z in kids(root, 'zone'):
-        add(z, lambda x, y: (x, y))
-    for node in kids(root, 'footprint'):
-        ref = next((p[2] for p in kids(node, 'property') if len(p) > 2 and p[1] == 'Reference'), '')
-        f = b.fps.get(ref)
-        for z in kids(node, 'zone'):
-            if f:                                    # footprint rule areas are stored local
-                add(z, lambda x, y, f=f: xf(x * f.scale[0], y * f.scale[1], f.x, f.y, f.rot))
+    for z, f in b._ko_nodes:                         # kept by Board's own parse: no second read
+        if f is None:
+            add(z, lambda x, y: (x, y))
+        else:                                        # footprint rule areas are stored local
+            add(z, lambda x, y, f=f: xf(x * f.scale[0], y * f.scale[1], f.x, f.y, f.rot))
     return out
 
 

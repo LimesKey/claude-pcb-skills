@@ -488,6 +488,7 @@ class Board:
         self.fps, self.nets = {}, defaultdict(list)
         self.zones = []
         self._fill_nodes = []
+        self._ko_nodes = []                     # [(rule-area zone node, FP or None)]: kpcb_zones._keepouts
         edge = []
 
         self.teardrops = []                     # [(net, layer, (cx, cy), outline)]: KiCad re-uuids them on regen
@@ -509,6 +510,8 @@ class Board:
                                    connect=cp[1] if len(cp) > 1 and isinstance(cp[1], str) else 'thermal',
                                    thermal_gap=_f(tg[1], 0.5) if tg else 0.5))
             self._fill_nodes += [(net, fp, val(z, 'uuid')) for fp in kids(z, 'filled_polygon')]
+            if kid(z, 'keepout'):
+                self._ko_nodes.append((z, None))
 
         # copper thickness per layer from the stackup (mm); outer = first+last Cu
         self.thick = {}
@@ -589,6 +592,7 @@ class Board:
         for node in kids(root, 'footprint'):
             f = self._footprint(node)
             self.fps[f.ref] = f
+            self._ko_nodes += [(z, f) for z in kids(node, 'zone') if kid(z, 'keepout')]
             edge += self._graphics(node, f, 'fp_')
             for g in node[1:]:                       # footprint copper: the net of a pad it lies on
                 if isinstance(g, list) and g and str(g[0]).startswith('fp_') and val(g, 'layer').endswith('.Cu'):

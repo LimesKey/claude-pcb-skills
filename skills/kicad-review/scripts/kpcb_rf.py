@@ -4,7 +4,7 @@ from collections import defaultdict
 import contextlib, io
 from kzo import microstrip, field_zo, prefetch
 from kcommon import natkey, unesc_disp, GND_RE, trunc
-from kpcb_board import _resolve_net, point_in_poly, pt_seg_dist, thick_of
+from kpcb_board import _resolve_net, bbox, grow, hit, point_in_poly, pt_seg_dist, thick_of
 from kpcb_copper import dead_copper
 
 # ---------------- RF traces ----------------
@@ -264,6 +264,7 @@ def c_refslots(b, a):
             if t['layer'] != sly or not n or gnd(n) or n in poured or (want and n not in want):
                 continue
             k = max(1, int(t['len'] / 0.05))
+            cand = None                     # reft tracks whose reach meets t's box, in reft order (exact)
             for s in range(k):
                 x = t['a'][0] + (t['b'][0] - t['a'][0]) * (s + 0.5) / k
                 y = t['a'][1] + (t['b'][1] - t['a'][1]) * (s + 0.5) / k
@@ -273,7 +274,10 @@ def c_refslots(b, a):
                 elif 'plane' in ras and at(ras['plane'], x, y):
                     res[n]['plane'] += dl
                 else:
-                    cut = next((u['net'] for u in reft if u['net'] != n and
+                    if cand is None:
+                        tb = bbox([t['a'], t['b']])
+                        cand = [u for u in reft if u['net'] != n and hit(grow(bbox([u['a'], u['b']]), u['w'] / 2 + 0.301), tb)]
+                    cut = next((u['net'] for u in cand if
                                 pt_seg_dist((x, y), u['a'], u['b']) <= u['w'] / 2 + 0.3), None)
                     res[n]['gap:' + (unesc_disp(cut) if cut else 'void/pad/via')] += dl
         for n, d in res.items():

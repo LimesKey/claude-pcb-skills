@@ -662,10 +662,11 @@ def c_tracks(b, a):
 def c_widen(b, a):
     if no_project(b, 'widen'):
         return 1
-    skip = skipped(b) | b.sw_nets()
+    imp = skipped(b)                                 # once: inside the comprehension it ran per track
+    skip = imp | b.sw_nets()
     want = set(a.args) or None
     ix = Index(b)
-    rf = [t for t in b.tracks if t['net'] in skipped(b) and t['layer'] in b.outer and
+    rf = [t for t in b.tracks if t['net'] in imp and t['layer'] in b.outer and
           'RF' in (b.netclass(t['net']) or '').upper()]
     fills = defaultdict(list)
     for fl in b.fills:

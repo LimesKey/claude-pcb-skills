@@ -3,6 +3,16 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kpcb_move, kpcb_rf, kpcb_zones, kpcb_tracks, kpcb_board - zero-cost speedups found by an
+      architecture audit, output byte-identical on the reference board. Done: `drag_set` skips tracks and vias
+      off f's pad nets or outside its pads' box (it did 33.7M via distance tests for `tidy`); `refslots` scans
+      only the reference-layer tracks whose reach meets the signal track's box, in the old order; `clr` memoises
+      each net's netclass clearance (3.5M netclass asks in a `movecheck --scan`) and skips the pair lookup when
+      the .kicad_dru has no pair rule; `widen` computed `skipped(b)` once per track (4224x) inside a
+      comprehension; `_keepouts` reads the rule areas Board's own parse kept instead of re-reading the file
+      (0.14 s a call, 1-2 calls per routing/census command). Reference board: tidy 4.8 -> 1.0 s, refslots 3.7 ->
+      1.1 s, `movecheck REF --scan` 19.9 -> 4.6 s, movecheck 0.96 -> 0.57 s, widen 11.5 -> 7.4 s, vscan 0.70 ->
+      0.57 s. 2026-11-26.
 - [x] kicad-review/kpcb_zoneshape - `zoneshape ZONE -o` reshaped one zone a call, two kicad-cli refills each: a
       clean-up of the reference board's 22 zones over the bar was 22 calls, ~5 min. Done: `zoneshape --over-bar
       [--redraw] [-o OUT]` proposes every one at once (refused ones named, left out), -o writes them all and
