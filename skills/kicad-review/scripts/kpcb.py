@@ -92,7 +92,10 @@ Writers (always to a new file, -o OUT; verify the copy with kdrc.py):
   kpcb.py FILE zoneshape [ZONE] [--redraw] [-o OUT]  zones ranked by how far from hand-drawn
                                       (vertices, off-45, micro-edges, faceted arcs); ZONE: a
                                       simplified 0/45/90 outline (--redraw: along the copper and
-                                      edge its fill keeps clear of), checked, -o refills copies
+                                      edge its fill keeps clear of), checked, -o refills copies;
+                                      --over-bar: every zone over the bar, one refill pair
+  kpcb.py FILE zonemerge A B [-o OUT]  a same-net overlapping zone pair as one outline (their
+                                      union, 0/45/90 + fillet), -o refill-verified
   kpcb.py FILE airwires [NET...]      what is left to route: per net, each missing link
                                       between copper pieces, nearest copper, gap
   kpcb.py FILE route NET... [-o OUT]  grid A* router (8 directions, through vias) through
@@ -188,7 +191,7 @@ from kpcb_ic import c_ic, role_pads
 from kpcb_view import c_view
 from kpcb_silk import c_silk, c_refdes
 from kpcb_label import c_pinlabels, c_label
-from kpcb_zoneshape import c_zoneshape
+from kpcb_zoneshape import c_zoneshape, c_zonemerge
 from kpcb_move import c_movecheck
 from kpcb_freebox import c_freebox
 from kpcb_tidy import c_tidy
@@ -974,7 +977,7 @@ CMDS = {'summary': c_summary, 'check': c_check, 'where': c_where, 'map': c_map,
         'vscan': c_vscan, 'smooth': c_smooth, 'tracks': c_tracks, 'widen': c_widen, 'loops': c_loops,
         'diff': c_diff, 'refdes': c_refdes, 'pinlabels': c_pinlabels, 'label': c_label,
         'congest': c_congest, 'fanout': c_fanout, 'reroute': c_reroute, 'refslots': c_refslots,
-        'zoneshape': c_zoneshape}
+        'zoneshape': c_zoneshape, 'zonemerge': c_zonemerge}
 
 LIMITS = (('edge', 0.5, 'courtyard-to-board-edge minimum, mm'),
           ('hole', 1.5, 'keepout beyond a mounting hole pad radius, mm'),
@@ -999,7 +1002,9 @@ def main():
                     help='for `where`: neighbour search radius in mm (5)')
     ap.add_argument('--redraw', action='store_true', help='for `zoneshape ZONE`: redraw the outline along the copper '
                     'clearance, board edge and out-ranking or same-net fills its fill keeps to anyway (far fewer corners)')
-    ap.add_argument('--eps', type=float, default=None, help='for `zoneshape`: how far a dropped corner may sit '
+    ap.add_argument('--over-bar', action='store_true', help='for `zoneshape`: propose every zone over the bar '
+                    '(> 24 vertices or 4+ micro-edges) at once; -o verifies them with one refill pair, dropping failures')
+    ap.add_argument('--eps', type=float, default=None, help='for `zoneshape`/`zonemerge`: how far a dropped corner may sit '
                     'from the new edge, mm (default 0.1; edges within eps/2 of 0/45/90 snap to it)')
     ap.add_argument('--max', type=int, default=12,
                     help='max lines per rule / per neighbour list before a +N tail (12)')

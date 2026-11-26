@@ -3,6 +3,22 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kpcb_zoneshape - `zoneshape ZONE -o` reshaped one zone a call, two kicad-cli refills each: a
+      clean-up of the reference board's 22 zones over the bar was 22 calls, ~5 min. Done: `zoneshape --over-bar
+      [--redraw] [-o OUT]` proposes every one at once (refused ones named, left out), -o writes them all and
+      verifies with one refill pair (pieces per net, with --redraw copper per zone <= 1% / 0.5 mm2); a failing
+      zone goes back to its old outline, is named, and OUT alone is refilled again. `_verify` now takes a list
+      of (label, net, layers, box). Reference board: 14 written, 3 dropped (-BATT -1.33, SOLAR +0.77, +3V3
+      +1.02 mm2), 11 verified in 28 s. Selftest: `zoneshape --over-bar` + an -o check. 2026-11-26.
+- [x] kicad-review/kpcb_tracks - `zones over own-net zone` said "keep both ... trim it by hand" for 8 of the
+      reference board's 10 pairs. Done: `zonemerge A B [-o OUT]` puts the pair's union (rastered on
+      kpcb_power's 0.05 grid, 0/45/90, sharp + fillet) on the higher-priority zone on their shared layers;
+      layers outside it keep the old outline (a multi-layer hand zone under a one-layer band splits). Refused
+      on a clearance difference, a same-net pad the two connection modes join differently (thru_hole_only vs
+      yes: plated holes only; refusing on the label alone blocked all 8), another net's zone ranked between,
+      or a union in pieces. -o verifies like zoneshape. The zonedup rows print the command. Reference board:
+      4 of 8 merge, refill-verified (copper +0.03..+0.17 mm2, pieces the same). Selftest: 4 cases + 2 -o checks.
+      2026-11-26.
 - [x] part-search/part_pick - `alt` held a range rating by its first figure ('Voltage - Supply' 1.6V~5.5V became
       `>=1.6`: a 1.2-5.5 V part failed, a 3.0-3.6 V one passed; an eFuse's 2.7V~23V became `--volt '>=2.7'`).
       Done: new spec `[lo..hi]` (a range value covering all of it: lower <= lo, upper >= hi), which `alt`

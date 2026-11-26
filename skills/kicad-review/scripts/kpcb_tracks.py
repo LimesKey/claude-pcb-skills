@@ -565,11 +565,11 @@ path, and CHG_VBUS 71% inside BAT_VBUS still lost 2.7 mm2 of fill, 2026-10-28). 
                 band = [x for x in (a, c) if (x.name or '').startswith(('route ', 'fatten '))]
                 mine = len(band) == 1 and band[0] is a       # zones compare by value: never ==
                 past = (1 - f) * poly_area(a.outline) if mine else poly_area(c.outline) - f * poly_area(a.outline)
-                fix = 'delete one' if len(band) != 1 else \
+                fix = f'delete one, or `zonemerge {a.uuid[:8]} {c.uuid[:8]} -o OUT`' if len(band) != 1 else \
                     f"delete the script band {nm(a)}" + (f", then refill: {past:.1f} mm2 of it lies outside {nm(c)} "
                                                          "- check the net's fill area" if past >= 0.5 else '') \
-                    if mine else f"keep both: band {nm(c)} reaches {past:.1f} mm2 past {nm(a)} (likely the " \
-                                        "current path); trim it by hand only if that copper does nothing"
+                    if mine else f"band {nm(c)} reaches {past:.1f} mm2 past {nm(a)} (likely the current " \
+                                        f"path): `zonemerge {a.uuid[:8]} {c.uuid[:8]} -o OUT` makes them one outline"
                 out.append(('zonedup', a, f"{nm(a)} {f:.0%} inside {nm(c)}", fix))
     return out
 

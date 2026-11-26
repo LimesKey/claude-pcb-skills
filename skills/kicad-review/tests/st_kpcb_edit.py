@@ -2,7 +2,7 @@
 
 selftest.py runs suite(); see its docstring for the case format."""
 import math, os
-from st_common import CASES, _gzone, _tab_board, _tab_fp, _tseg, _tvia, _typed_dir, _tzone, check
+from st_common import CASES, _gzone, _tab_board, _tab_fp, _tseg, _tvia, _typed_dir, _tzone, check, rect, run
 
 
 def tidy_board(d):
@@ -119,6 +119,21 @@ def notch_board(d):
     return _tab_board(d, 'notch.kicad_pcb', 20, 10, _tab_fp('U1', 7, 2.4, [('1', 0, 0, 1, 1, 'Q')])
                       + _gzone('F.Cu', [(2, 2), (6.3, 2), (6.3, 3.1), (7.7, 3.1), (7.7, 2), (12, 2), (12, 8), (2, 8)],
                                None, 'band', net='P', uid='zr'))
+
+
+def merge_board(d):
+    """20 x 10: P zones za 'band' (2,2)-(10,6) and zb 'hand' (6,4)-(14,8), priority 2, overlapping
+    in a 4 x 2 box (union: one 8-corner outline, 56 mm2); on B.Cu zc (a pair with za zonemerge refuses),
+    and zd priority 3 over Q's zq priority 1 that out-ranks zc (zc + zd refused); zf F.Cu+B.Cu
+    (15,1)-(19,5) under zg, an F.Cu band (17,3)-(19.5,9): merged on F.Cu, zf keeps B.Cu"""
+    return _tab_board(d, 'merge.kicad_pcb', 20, 10, _gzone('F.Cu', rect(2, 2, 10, 6), None, 'band', net='P', uid='za')
+                      + _gzone('F.Cu', rect(6, 4, 14, 8), None, 'hand', '\t\t(priority 2)\n', net='P', uid='zb')
+                      + _gzone('B.Cu', rect(6, 4, 14, 8), None, 'back', net='P', uid='zc')
+                      + _gzone('B.Cu', rect(5, 3, 8, 5), None, 'q', '\t\t(priority 1)\n', net='Q', uid='zq')
+                      + _gzone('B.Cu', rect(8, 5, 12, 7), None, 'back hi', '\t\t(priority 3)\n', net='P', uid='zd')
+                      + _gzone('F.Cu', rect(15, 1, 19, 5), None, 'hand2', '\t\t(priority 1)\n', net='P', uid='zf')
+                      .replace('(layer "F.Cu")', '(layers "F.Cu" "B.Cu")', 1)
+                      + _gzone('F.Cu', rect(17, 3, 19.5, 9), None, 'route P', '\t\t(priority 4)\n', net='P', uid='zg'))
 
 
 def mvvia_board(d):
@@ -364,6 +379,20 @@ def suite(tmp, mini):
                   ["vertices 26 -> 8, off-45 edges 24 -> 0, micro-edges 24 -> 0, faceted arcs 2 -> 0; corners now sharp",
                    "outline moved <= 0.086 mm", "geometry ok"]))
     CASES.append(("kpcb zoneshape clean", ['kpcb.py', fz, 'zoneshape', 'hand'], 0, ["already clean"]))
+    CASES.append(("kpcb zoneshape --over-bar", ['kpcb.py', fz, 'zoneshape', '--over-bar'], 0,
+                  ["1 zone(s) over a designer's bar", "za        P                  F.Cu     26 -> 8    pts, off-45 24 -> 0",
+                   "-o OUT writes the 1 proposal(s)"]))
+    zm = merge_board(tmp.name)
+    CASES.append(("kpcb zonemerge", ['kpcb.py', zm, 'zonemerge', 'za', 'zb'], 0,
+                  ["zonemerge za 'band' (priority 0) into zb 'hand' (priority 2)", "4 + 4 -> 8 vertices, off-45 edges 0",
+                   "area 32.00 + 32.00 -> 56.00 mm2", "geometry ok"]))
+    CASES.append(("kpcb zonemerge refuses no shared layer", ['kpcb.py', zm, 'zonemerge', 'za', 'zc'], 2,
+                  ["refused, no shared layer (F.Cu / B.Cu)"]))
+    CASES.append(("kpcb zonemerge splits a two-layer zone", ['kpcb.py', zm, 'zonemerge', 'zf', 'zg'], 0,
+                  ["zonemerge zf 'hand2' (priority 1) into zg 'route P' (priority 4), P F.Cu",
+                   "zf 'hand2' keeps B.Cu as it is", "area 15.00 + 16.00 -> 27.00 mm2"]))
+    CASES.append(("kpcb zonemerge refuses a zone ranked between", ['kpcb.py', zm, 'zonemerge', 'zc', 'zd'], 2,
+                  ["refused, zq 'q' (priority 1) ranks between them over that area"]))
     CASES.append(("kpcb zoneshape redraw", ['kpcb.py', notch_board(tmp.name), 'zoneshape', 'zr', '--redraw'], 0,
                   ["redrawn along the copper", "vertices 8 -> 4", "geometry ok"]))
     CASES.append(("kpcb tracks zonepts", ['kpcb.py', fz, 'tracks', '--kind', 'zonepts'], 0,
@@ -437,6 +466,23 @@ def suite(tmp, mini):
     ok7 &= all(abs(q['x'] - (2 * f.x - p['x'])) < 1e-9 and abs(q['y'] - p['y']) < 1e-9 and fb.fps[r].back != f.back
                for r, f in bb.fps.items() for p, q in zip(f.pads, fb.fps[r].pads))
     check(ok7, "writers: flip / move+rotate round trips exact, flipped pads mirrored")
+    nocli = {'KICAD_CLI': 'no-such-kicad-cli'}                 # the writes only: the refill is the goldens' job
+    zm, zmo, fzo = (os.path.join(tmp.name, n) for n in ('merge.kicad_pcb', 'merge2.kicad_pcb', 'overbar.kicad_pcb'))
+    code, out = run(['kpcb.py', zm, 'zonemerge', 'za', 'zb', '-o', zmo], nocli)
+    mz = kpcb_board.Board(zmo).zones if os.path.exists(zmo) else []
+    check(code == 0 and 'no-such-kicad-cli not found' in out and sorted(z.uuid for z in mz) == ['zb', 'zc', 'zd', 'zf', 'zg', 'zq']
+          and len(next(z for z in mz if z.uuid == 'zb').outline) == 8,
+          "zonemerge -o: za deleted, zb takes the 8-corner union, zc untouched")
+    zmo2 = os.path.join(tmp.name, 'merge3.kicad_pcb')
+    code, out = run(['kpcb.py', zm, 'zonemerge', 'zf', 'zg', '-o', zmo2], nocli)
+    mz = {z.uuid: z for z in kpcb_board.Board(zmo2).zones} if os.path.exists(zmo2) else {}
+    check(code == 0 and mz.get('zg') and mz['zg'][1] == ['F.Cu'] and len(mz['zg'].outline) == 8
+          and mz['zf'][1] == ['B.Cu'] and len(mz['zf'].outline) == 4,
+          "zonemerge -o split: zg takes the F.Cu union, zf stays on B.Cu with its outline")
+    code, out = run(['kpcb.py', os.path.join(tmp.name, 'faceted.kicad_pcb'), 'zoneshape', '--over-bar', '-o', fzo], nocli)
+    oz = {z.uuid: z for z in kpcb_board.Board(fzo).zones} if os.path.exists(fzo) else {}
+    check(code == 0 and 'za' in oz and len(oz['za'].outline) == 8 and len(oz['zb'].outline) == 4,
+          "zoneshape --over-bar -o: za written as its 8-corner proposal, zb (under the bar) as it was")
     f0 = next(iter(bb.fps.values()))
     check(repr(f0).startswith(f'FP({f0.ref} ') and f'{len(f0.pads)} pads)' in repr(f0),
                    "FP repr: ref, value, layer, position, pad count (what an ad-hoc print shows)")

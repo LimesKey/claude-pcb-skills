@@ -512,6 +512,29 @@ the refilled copper round the zone moves > 1% / 0.5 mm2 (a clearance the model m
 Reference board 2026-11-13: +5V 115 -> 71 vertices (plain 84), off-45 55 -> 3; PPHV B.Cu off-45
 47 -> 13; VSYS In2 85 -> 51 (plain 53); refilled copper moved 0.06-0.42 mm2, pieces the same.
 Courtyards are not boundaries (they shape no fill).
+`--over-bar [--redraw] [-o OUT]`: every zone over the bar at once, one row each (vertices and
+off-45 before -> after; a refused one names why and is left out). -o writes them all, refills the
+input and OUT once and checks each zone as above (its net's pieces, and with --redraw its copper
+within 1% / 0.5 mm2); a zone that fails goes back to its old outline in OUT, is named, and OUT is
+refilled again (the input's refill reused) until the rest pass. A net whose pieces change fails
+every zone of it in the batch.
+
+**`zonemerge A B [--eps E] [-o OUT]`** (`kpcb_zoneshape.py`): a same-net overlapping pair (the
+`tracks --kind zonedup` rows, which print the command) as one outline on the layers they share.
+Both unrounded, their union rastered at 0.05 mm on `kpcb_power.band`'s grid, traced on 0/45/90 and
+simplified at E (0.1); the higher-priority zone (ties by uuid, as KiCad) keeps its uuid, name and
+settings and takes it, sharp + (smoothing fillet) (the pair's radius, else 0.2). A zone's layers
+outside the shared set keep its old outline (KiCad gives a multi-layer zone one outline): the lower
+one keeps its uuid there, the higher one's goes in as a copy; a zone with none left is deleted.
+Refused (exit 2) when they share no layer, differ in clearance, join a same-net pad inside the union
+differently (`thru_hole_only` and `yes` differ only on a plated hole), another net's zone on a shared
+layer ranks between them over the lower one's box (the merged zone would out-rank it where the lower
+one yielded: copper the check below would not see go), or the union is not one piece; the dry run
+also refuses a lost same-net pad or a vertex off the board. -o verifies as `zoneshape --redraw -o`
+does, round the pair's box on both zones' layers. Reference board 2026-11-26: 4 of its 8 band-over-
+hand pairs merge (e.g. 'PACK' F/B/In1 + 'route +PACK' In1: one In1 outline, 36 + 21 -> 41 corners,
+copper +0.17 mm2, pieces the same); the rest differ in clearance, a THT pad's connection, or have a
+zone ranked between.
 
 **`pinlabels REF [NAME...] [--size H] [-r MAX] -o OUT`** and **`label TEXT X,Y | --near REF
 [--side b] -o OUT`** (`kpcb_label.py`): new board silk texts at spots `silk` passes.

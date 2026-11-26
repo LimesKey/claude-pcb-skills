@@ -675,7 +675,7 @@ def suite(tmp, mini):
     dz2 = _tab_board(tmp.name, 'dupzone2.kicad_pcb', 20, 10, _gzone('F.Cu', rect(3, 3, 9, 7), None, 'hand', net='P', uid='zh')
                      + _gzone('F.Cu', rect(2, 2, 10, 8), None, 'route P', net='P', uid='zr'))
     CASES.append(("kpcb tracks zonedup keeps a band round his zone", ['kpcb.py', dz2, 'tracks', '--kind', 'zonedup'], 0,
-                  ["'hand' 100% inside 'route P' keep both: band 'route P' reaches 24.0 mm2 past 'hand'"]))
+                  ["'hand' 100% inside 'route P' band 'route P' reaches 24.0 mm2 past 'hand' (likely the current path): `zonemerge zh zr -o OUT`"]))
     CASES.append(("kpcb edit del teardrop", ['kpcb.py', pb, 'edit', 'del', 'td1', '-o', T('prune2.kicad_pcb')], 0,
                   ["1 teardrop(s) of deleted tracks dropped"]))
     with open(pb) as f:                       # the teardrop regenerated 0.5 mm over, under a new uuid
