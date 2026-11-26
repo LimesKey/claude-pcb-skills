@@ -5,7 +5,7 @@ size, uuid, findings): what `edit ref/hide/show/textsize/text` takes.
 
 `silk [--only RULE]` judges every visible silk text (designators, values, user and board
 texts) and the padless graphic footprints (logos):
-  SILK-PAD      over exposed pad copper (within the silk clearance): the fab clips it
+  SILK-PAD      over a pad's mask opening (copper + mask margin, within the silk clearance): the fab clips it
   SILK-UNDER    under a placed part's body (Fab, else courtyard) on that side: hidden once built
   SILK-OVERLAP  over another silk text or a footprint's silk outline
   SILK-EDGE     off the board or inside the silk clearance of the edge
@@ -34,7 +34,7 @@ from collections import Counter, defaultdict
 from kcommon import natkey, trunc, print_findings, prefix
 from kpcb_board import Buckets, bbox, box_dist, grow, hit, inside, overlap_area, pad_box, seg_box_dist
 
-RULES = {'SILK-PAD': 'silk over exposed pad copper: clipped at the mask opening',
+RULES = {'SILK-PAD': "silk over a pad's mask opening: clipped there",
          'SILK-UNDER': "silk under a placed part's body: hidden once assembled",
          'SILK-OVERLAP': 'silk text over another text or a silk outline',
          'SILK-EDGE': 'silk off the board or inside the edge clearance',
@@ -114,7 +114,9 @@ class Silk:
             for p in g.pads:
                 for side in (False, True):
                     if exposed(p, side):
-                        self.put(('pad', side, g, p), pad_box(p))
+                        # the mask opening (a fiducial's 2-3 mm) is what clips silk, not the copper.
+                        # ponytail: a box, so a round opening reads larger at its corners
+                        self.put(('pad', side, g, p), grow(pad_box(p), max(0.0, p['mask'])))
             if body(g) and not b.is_hole(g):      # no Fab body (E22P, cell holders, easyeda headers): the courtyard
                 self.put(('body', g.back, g, None), body(g))
             for ly, a, c, w in g.silklines:
@@ -161,8 +163,9 @@ class Silk:
                 continue
             if kind == 'pad' and anyp(lambda pb: hit(grow(pb, self.clr), ib)):
                 gap = min(box_dist(pb, ib) for pb in P)
-                out.append(('SILK-PAD', f"over {g.ref}.{extra['num']}" if gap <= 0 else
-                            f"{gap:.3f} mm from {g.ref}.{extra['num']} (silk clearance {self.clr:g})", g.ref))
+                lab = f"{g.ref}.{extra['num']}" + ("'s mask opening" if extra['mask'] > 0 else '')
+                out.append(('SILK-PAD', f"over {lab}" if gap <= 0 else
+                            f"{gap:.3f} mm from {lab} (silk clearance {self.clr:g})", g.ref))
             elif kind == 'body' and anyp(lambda pb: hit(pb, ib)) and \
                     not (g is owner and not g.fab and me is not None and me['kind'] == 'user'):  # its own marks, courtyard body
                 out.append(('SILK-UNDER', 'under its own body' if g is owner else f"under {g.ref}'s body", g.ref))
@@ -328,10 +331,22 @@ def c_silk(b, a):
               + (f"HIDDEN under {cov[0][1].ref} ({100 * min(1, cov[0][0]):.0f}%)" if cov and cov[0][0] >= .5 else
                  'visible' + (f" (partly under {', '.join(f'{g.ref} {100 * c:.0f}%' for c, g in cov[:3])})" if cov else ''))
               + (f"; crosses {len(pads)} {side}-side pad(s): {' '.join(f'{r}.{n}' for r, n in pads[:6])}" if pads else ''))
-    sizes = Counter((x['h'], x['thick']) for x in vis)
-    if sizes:
-        print("\ndesignator sizes (height/thickness mm x count): "
-              + ', '.join(f"{h:g}/{t:g} x{c}" for (h, t), c in sizes.most_common(8)))
+    refs = defaultdict(list)                      # (h, thick) -> refs, to name the odd ones out
+    for f in b.placed():                          # placed order: ties keep Counter's old bucket order
+        for x in f.fields:
+            if f.pads and x['kind'] == 'Reference' and not x['hidden'] and x['layer'].endswith('.SilkS'):
+                refs[(x['h'], x['thick'])].append(f.ref)
+                if x.get('bold') or x.get('italic'):
+                    refs['style'].append(f"{f.ref} ({' '.join(k for k in ('bold', 'italic') if x.get(k))})")
+    styled = sorted(refs.pop('style', []), key=natkey)
+    if refs:
+        top = sorted(refs.items(), key=lambda kv: -len(kv[1]))[:8]
+        print("\ndesignator sizes (height/thickness mm x count, the minority buckets named): "
+              + ', '.join(f"{h:g}/{t:g} x{len(rs)}" + (f" ({' '.join(sorted(rs, key=natkey)[:6])}{' ...' if len(rs) > 6 else ''})" if i else '')
+                          for i, ((h, t), rs) in enumerate(top)))
+    if styled:
+        print(f"styled designators ({len(styled)}; `edit style REF nobold|noitalic`): {', '.join(styled[:12])}"
+              + (f" +{len(styled) - 12} more" if len(styled) > 12 else ''))
     print("next: `refdes -o OUT` re-places the flagged designators (dry run without -o); `view REF --layers "
           "F.SilkS,F.Fab,F.Cu` to look")
     return 2 if n['ERROR'] else 0
@@ -358,6 +373,7 @@ def silk_list(b, a):
         flags = ', '.join(sorted(r.replace('SILK-', '').lower() for r in per.get(id(x), ())))
         print(f"  {x['layer'][0]}  {who:<20} {trunc(x['text'], 18)!r:<20} {x['x']:8.3f},{x['y']:<8.3f} {x['ang']:>4g} deg  "
               f"{x['h']:g}/{x['thick']:g}" + (' TTF' if x.get('ttf') else '') + (' knockout' if x.get('knockout') else '')
+              + (' bold' if x.get('bold') else '') + (' italic' if x.get('italic') else '')
               + (' hidden' if x['hidden'] else '')
               + (f"  [{x['uuid'][:8]}]" if (not f or x['kind'] == 'user') and x['kind'] != 'table' and x['uuid'] else '')
               + (f"  ({flags})" if flags else ''))

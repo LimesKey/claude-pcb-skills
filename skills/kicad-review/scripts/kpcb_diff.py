@@ -19,7 +19,7 @@ def _r(b, t):
     return RHO_CU * t['len'] / max(t['w'] * thick_of(b, t['layer']), 1e-9)
 
 
-TXT = ('text', 'layer', 'x', 'y', 'ang', 'h', 'thick', 'hidden', 'mirror', 'knockout')
+TXT = ('text', 'layer', 'x', 'y', 'ang', 'h', 'thick', 'hidden', 'mirror', 'knockout', 'bold', 'italic')
 
 
 def _tkey(t):

@@ -294,7 +294,8 @@ a jumper's '1'/'3' pin label; uuids from `silk REF`, which prints them in [brack
 TrueType text's stale `render_cache` is dropped on any move, resize or retext); `del UUID` and
 `textsize UUID H T` take a user text too (never a Reference/Value field: `hide`/`textsize REF`);
 `knockout UUID|REF on|off` (a board/user text, or REF's designator; `(layer "F.SilkS"
-knockout)`), `retext UUID TEXT` (a board or user text's content) and `addtext TEXT X,Y ANG f|b H`
+knockout)`), `style UUID|REF bold|nobold|italic|noitalic` (the font's `(bold yes)` /
+`(italic yes)`, as knockout; the stroke width is kept, `textsize` sets it), `retext UUID TEXT` (a board or user text's content) and `addtext TEXT X,Y ANG f|b H`
 (a new board silk text at exactly X,Y, stroke 0.15 H >= 0.15, mirrored on b; `label` finds a
 clear spot instead), in order, a prefix matching anything but exactly one item refusing the lot.
 `diff` reports each in place: `JP1: Reference knockout on, user moved, user removed`. **`move`** is KiCad's Drag (D), `kpcb_move.drag_plan`:

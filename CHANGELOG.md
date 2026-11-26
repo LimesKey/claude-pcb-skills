@@ -3,6 +3,18 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kpcb silk SILK-PAD by mask opening - a label touching a fiducial's mask opening (what clips
+      silk) passed, since pads were tested by copper. Done: each exposed pad's obstacle is its copper box grown
+      by its mask margin (pad, footprint or board `pad_to_mask_clearance`, from the existing `p['mask']`); the
+      line reads `over FID1.1's mask opening`. Still a box (a round opening reads larger at its corners).
+      Selftest: `kpcb silk mask opening`. 2026-11-26.
+- [x] kicad-review/kpcb edit style + silk size names - removing `(bold yes)` from a designator and finding the
+      odd-sized ones took hand scripts (2026-11-26 transcripts). Done: `edit style UUID|REF
+      bold|nobold|italic|noitalic` (KiCad's place in `(font)`, stroke kept, render_cache dropped); the model's
+      texts carry `bold`/`italic` (kpcb_board.font_flags), `silk --box` prints them, `diff` reports them; the
+      size histogram names the refs of every minority bucket and a `styled designators` line lists bold/italic
+      ones. knockout and style share one REF-or-uuid lookup. Selftest: `kpcb edit style`, `... result`, `kpcb
+      silk styled designators`, the histogram in `kpcb silk review`. 2026-11-26.
 - [x] kicad-review/kpcb_text - PcbText, the text-surgery layer every writer uses, sat in kpcb_edit with the writer
       commands, so 9 modules imported a command module to write a file. Done: PcbText, num, qs and norm_ang in
       their own kpcb_text.py (no command imports); every importer points there (kpcb_edit re-exports them for

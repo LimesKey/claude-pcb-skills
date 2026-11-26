@@ -84,7 +84,7 @@ carry F.SilkS art), so `summary`, `map` and `where` count it on the art's side.
 | `renet [--drop] -o OUT` | netless tracks/vias (a net renamed under them) take the one net their ends touch; `--drop` deletes the clusters that touch two nets (stale routes) or none. |
 | `fixlines -o OUT` | repair the KiCad 10.99 fp_line frame bug in a copy (see "fp_line frame bug" below). |
 | `fatten NET... --amps A -o OUT` / `stitch NET [X,Y] -o OUT` | same-net pour bands round the tracks of a power path too thin for A / legal via spots on its copper. [kpcb-writers](kpcb-writers.md). |
-| `copper X0,Y0,X1,Y1` / `edit OP... -o OUT` | every copper item in a box with its uuid / a hand edit (`width`, `del`, `seg`, `via`, `solid`, `simplify`, `unround`; `zoneshape` ranks zone outlines and proposes a clean one, `--redraw` along the copper and edge its fill keeps clear of, `--over-bar` every zone over the bar in one refill-verified write; `zonemerge A B` one outline for a same-net overlapping pair; silk: `ref`, `hide`, `show`, `textsize`, `text`, `knockout`, `retext`, `addtext`). [kpcb-writers](kpcb-writers.md). |
+| `copper X0,Y0,X1,Y1` / `edit OP... -o OUT` | every copper item in a box with its uuid / a hand edit (`width`, `del`, `seg`, `via`, `solid`, `simplify`, `unround`; `zoneshape` ranks zone outlines and proposes a clean one, `--redraw` along the copper and edge its fill keeps clear of, `--over-bar` every zone over the bar in one refill-verified write; `zonemerge A B` one outline for a same-net overlapping pair; silk: `ref`, `hide`, `show`, `textsize`, `text`, `knockout`, `style`, `retext`, `addtext`). [kpcb-writers](kpcb-writers.md). |
 | `reroute [NET...] [-o OUT]` | rip each detour net (or the named ones) and route it again on a copy; kept only when complete and length + via cost drops >= 5%. Dry run without -o. [kpcb-writers](kpcb-writers.md). |
 | `smooth` / `widen` / `loops` / `unhook` `-o OUT` | trace clean-up writers: pull chains tight and octilinear (+ `--overlaps`, `--corners`, `--square`, `--pads`: a trace stopping at a pad edge onto the pad centre, `--all`), grow under-width tracks, delete redundant chains, rip only what served a part. [kpcb-writers](kpcb-writers.md). |
 
@@ -696,9 +696,11 @@ is clear. A **knockout** text is one solid box, its ink grown by KiCad's knockou
 height / 9 (0.122 at 1.1 mm, 0.167 at 1.5, measured on the plot). Rules, on the text's
 own side:
 - **SILK-PAD** a part, grown by the silk clearance (`.kicad_dru` `silk_clearance`,
-  `.kicad_pro` `min_silk_clearance`), touches a pad open in that side's mask (`F.Mask`/
-  `*.Mask`: a tented via-in-pad is not): the fab clips silk at the mask opening. Prints
-  `over U5.3` when the ink overlaps the pad, else the gap: `0.123 mm from F5.1 (silk
+  `.kicad_pro` `min_silk_clearance`), touches a pad's mask opening on that side (`F.Mask`/
+  `*.Mask`: a tented via-in-pad is not): the copper box grown by its mask margin (pad,
+  footprint or board `pad_to_mask_clearance`; a fiducial's 0.5 mm one: `over FID1.1's mask
+  opening`), as a box (a round opening reads larger at its corners). The fab clips silk
+  there. Prints `over U5.3` when the ink overlaps it, else the gap: `0.123 mm from F5.1 (silk
   clearance 0.15)`. KiCad's own `silk_over_copper` passes a gap > 0 (reference board 2026-10-24:
   it flags only the knockout 'POWER' over C8), so a gap line is the fab margin, not a clip.
 - **SILK-UNDER** the box overlaps a placed part's body on that side, its own or a
@@ -726,9 +728,10 @@ own side:
   flip convention, so it is not judged.
 - **SILK-HIDDEN** (info) designators hidden or off the silk, one summary line.
 - **SILK-ART** a logo HIDDEN >= 50% under a body, or over pads (below).
-Then the logo table and the designator size histogram (pick the normalisation from it).
+Then the logo table and the designator size histogram (pick the normalisation from it; the
+minority buckets name their refs, up to 6), then the bold/italic designators (`edit style`).
 `silk REF... [-r]` / `--box` lists the texts in a region instead, with board and user
-text uuids and the TTF/knockout flags. KiCad's own `silk_over_copper` / `silk_overlap` may
+text uuids and the TTF/knockout/bold/italic flags. KiCad's own `silk_over_copper` / `silk_overlap` may
 be IGNORED in the `.kicad_pro` (the reference board's are): plain `kdrc` will not show them, `kdrc --all`
 does (it re-enables ignored rules on a temp copy); its TEXT_HEIGHT/THICKNESS overlap
 SILK-SIZE. Reference board 2026-10-19: 242 visible designators of 469; ~400 warnings, about half

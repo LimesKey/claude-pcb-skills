@@ -810,7 +810,7 @@ def c_move(b, a):
 EDIT_OPS = {'width': 2, 'del': 1, 'seg': 5, 'via': 3, 'solid': 1, 'simplify': 2,
             'ref': 3, 'hide': 1, 'show': 1, 'textsize': 3, 'text': 3, 'vcenter': 1,
             'value': 3, 'hide-value': 1, 'show-value': 1, 'valuesize': 3, 'mvvia': 2,
-            'knockout': 2, 'retext': 2, 'addtext': 5, 'unround': 1, 'dragvia': 2}
+            'knockout': 2, 'style': 2, 'retext': 2, 'addtext': 5, 'unround': 1, 'dragvia': 2}
 EDIT_USE = ("edit OP... -o OUT   (one or more, in order; UUID = a unique prefix, from `copper`)\n"
             "  width UUID W                  a segment's or arc's width\n"
             "  del UUID                      delete a segment, arc, via or zone\n"
@@ -833,6 +833,8 @@ EDIT_USE = ("edit OP... -o OUT   (one or more, in order; UUID = a unique prefix,
             "                                '1'/'3'), uuid from `silk REF` or `silk --box ..`; `del UUID` and\n"
             "                                `textsize UUID H T` take either too\n"
             "  knockout UUID|REF on|off      knockout (inverted) text: a board/user text, or REF's designator\n"
+            "  style UUID|REF bold|nobold|italic|noitalic   the font's bold / italic flag, as knockout\n"
+            "                                (stroke width kept: textsize sets it)\n"
             "  retext UUID TEXT              a board or user text's content\n"
             "  addtext TEXT X,Y ANG f|b H    a new board silk text centred at X,Y, H mm (stroke 0.15 H, >= 0.15)\n"
             "  mvvia UUID R                  re-place a trackless (stitching) via at the nearest legal spot\n"
@@ -1091,6 +1093,24 @@ def _knockout(blk, on):
     return blk
 
 
+STYLE = {'bold': ('bold', True), 'nobold': ('bold', False), 'italic': ('italic', True), 'noitalic': ('italic', False)}
+_FONT_ORDER = ('face', 'size', 'thickness', 'bold', 'italic')      # KiCad's own order inside (font)
+
+
+def _style(blk, k, on):
+    """set or clear a text's (bold yes) / (italic yes), in KiCad's place inside its (font)"""
+    m = re.search(r'\n(\t+)\(font\n(.*?)\n\1\)', blk, re.S)
+    if not m:
+        raise SystemExit("edit: style: the text has no multi-line (font) block; nothing written")
+    lines = [ln for ln in m[2].split('\n') if not re.fullmatch(rf'\s*\({k}(?: \w+)?\)|\s*{k}', ln)]
+    if on:
+        tags = [re.match(r'\s*\(?(\w+)', ln)[1] for ln in lines]
+        before = _FONT_ORDER[:_FONT_ORDER.index(k)]
+        at = max((i + 1 for i, t in enumerate(tags) if t in before), default=0)
+        lines.insert(at, f"{m[1]}\t({k} yes)")
+    return blk[:m.start(2)] + '\n'.join(lines) + blk[m.end(2):]
+
+
 def c_edit(b, a):
     """scripted hand edits on a copy, every match asserted: what a power pass or a
     clean-up needs between the routers (a width, a stray track, a stitching via)"""
@@ -1141,6 +1161,15 @@ def c_edit(b, a):
         m = fp_field(s, x['uuid'])
         cur[u] = s[:m.start()] + cache(fn(m.group(0), sub[x['uuid']][0]), (x['x'], x['y'])) + s[m.end():]
         return x['uuid']
+
+    def ref_or_text(pfx, fn):
+        """text_edit on REF's designator, or on a board/user text by uuid"""
+        if pfx not in b.fps:
+            return text_edit(pfx, fn)
+        fx = next((x for x in b.fps[pfx].fields if x['kind'] == 'Reference' and x['uuid']), None)
+        if not fx:
+            raise SystemExit(f"edit: {pfx} has no Reference field with a uuid; nothing written")
+        return text_edit(fx['uuid'], fn, 'any')
     xy = lambda s: tuple(float(v) for v in s.split(','))      # noqa: E731
     for k, v in ops:
         if k == 'width':
@@ -1235,14 +1264,14 @@ def c_edit(b, a):
             if v[1] not in ('on', 'off'):
                 raise SystemExit(f"edit: knockout wants on|off, not {v[1]!r}; nothing written")
             kn = lambda blk, f: _knockout(blk, v[1] == 'on')      # noqa: E731
-            if v[0] in b.fps:                                    # REF: its designator
-                fx = next((x for x in b.fps[v[0]].fields if x['kind'] == 'Reference' and x['uuid']), None)
-                if not fx:
-                    raise SystemExit(f"edit: {v[0]} has no Reference field with a uuid; nothing written")
-                text_edit(fx['uuid'], kn, 'any')
-            else:
-                text_edit(v[0], kn)
+            ref_or_text(v[0], kn)
             print(f"  knockout {v[0]} {v[1]}")
+        elif k == 'style':
+            if v[1] not in STYLE:
+                raise SystemExit(f"edit: style wants {'|'.join(STYLE)}, not {v[1]!r}; nothing written")
+            st = lambda blk, f: _style(blk, *STYLE[v[1]])        # noqa: E731
+            ref_or_text(v[0], st)
+            print(f"  style {v[0]} {v[1]}")
         elif k == 'retext':
             def rt(blk, f):
                 blk, c = re.subn(r'^(\n?\t+\((?:gr_text|fp_text user|property "[^"]*") )"(?:[^"\\]|\\.)*"',

@@ -156,6 +156,11 @@ def text_box(x, y, ang, txt, node, k=1.0):
     """estimated board box of a KiCad text at x,y (its anchor), absolute angle"""
     return text_parts(x, y, ang, txt, node, k)[0]
 
+def font_flags(fnt):
+    """{'bold': .., 'italic': ..} of a (font) node: KiCad >= 7 writes (bold yes), 6 a bare token"""
+    return {k: k in fnt or val(fnt, k) == 'yes' for k in ('bold', 'italic')}
+
+
 def text_parts(x, y, ang, txt, node, k=1.0):
     """(box, parts) of a KiCad text at x,y (its anchor), absolute angle. box: 0.9 x font
     width per character (KiCad's own text box, the plot's textLength), 1.6 x height per line,
@@ -609,7 +614,8 @@ class Board:
                                        'y': float(at[2]), 'ang': ang, 'h': _f(sz[1], 1.0), 'thick': _f(th[1], 0.15) if th else 0.15,
                                        'hidden': False, 'mirror': 'mirror' in (kid(eff, 'justify') or []),
                                        'knockout': 'knockout' in (kid(g, 'layer') or []),
-                                       'uuid': val(g, 'uuid'), 'box': bx, 'parts': parts, 'ttf': kid(fnt, 'face') is not None})
+                                       'uuid': val(g, 'uuid'), 'box': bx, 'parts': parts, 'ttf': kid(fnt, 'face') is not None,
+                                       **font_flags(fnt)})
             elif self._gpts(g, g[0]):
                 self.silk.append((val(g, 'layer'), bbox(self._gpts(g, g[0]))))
                 self.silkart.append(self._art(g))
@@ -864,7 +870,7 @@ class Board:
                              'hidden': 'hide' in t or (kid(t, 'hide') or ['', 'no'])[1:2] == ['yes'] or 'hide' in eff,
                              'mirror': 'mirror' in (kid(eff, 'justify') or []), 'uuid': val(t, 'uuid'),
                              'knockout': 'knockout' in (kid(t, 'layer') or []),
-                             'ttf': kid(fnt, 'face') is not None})
+                             'ttf': kid(fnt, 'face') is not None, **font_flags(fnt)})
             f.fields[-1]['box'], f.fields[-1]['parts'] = text_parts(tx, ty, ang, txt, t, (kx + ky) / 2)
         if f.ref in self.fps:                     # KiCad allows it; keep every one visible
             n = 2
@@ -1065,7 +1071,8 @@ class Board:
             self.silktexts.append({'kind': 'table', 'text': txt, 'layer': ly, 'x': ax, 'y': ay, 'ang': 0.0,
                                    'h': _f(sz[1], 1.0), 'thick': _f(th[1], 0.15) if th else 0.15, 'hidden': False,
                                    'mirror': 'mirror' in js, 'knockout': ko, 'uuid': val(c, 'uuid'), 'box': bx,
-                                   'parts': parts, 'ttf': kid(fnt, 'face') is not None, 'cell': (x0, y0, x1, y1)})
+                                   'parts': parts, 'ttf': kid(fnt, 'face') is not None, 'cell': (x0, y0, x1, y1),
+                                   **font_flags(fnt)})
 
     @classmethod
     def _art(cls, g):

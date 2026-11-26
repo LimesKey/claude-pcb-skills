@@ -222,7 +222,8 @@ def _silk_fp(ref, x, y, pads, ref_at=(0, -1.5, 0), size=1, thick=0.15, fab=None,
             f'\t\t(fp_rect\n\t\t\t(start {-crt[0]} {-crt[1]})\n\t\t\t(end {crt[0]} {crt[1]})\n\t\t\t(stroke\n'
             f'\t\t\t\t(width 0.05)\n\t\t\t\t(type solid)\n\t\t\t)\n\t\t\t(layer "F.CrtYd")\n\t\t\t{u()}\n\t\t)\n' + fb
             + ''.join(f'\t\t(pad "{n}" smd rect\n\t\t\t(at {dx} {dy})\n\t\t\t(size {sx} {sy})\n\t\t\t(layers "F.Cu" "F.Mask")\n'
-                      f'\t\t\t(net "{net}")\n\t\t\t{u()}\n\t\t)\n' for n, dx, dy, sx, sy, net in pads) + '\t)\n')
+                      f'\t\t\t(net "{net}")\n' + ''.join(f'\t\t\t{e}\n' for e in ex) + f'\t\t\t{u()}\n\t\t)\n'
+                      for n, dx, dy, sx, sy, net, *ex in pads) + '\t)\n')
 
 
 def silk_art_board(d):
@@ -264,11 +265,14 @@ def silk_review_board(d):
 
 
 def utext_board(d):
-    """JP1 with user texts '1' (ut1) and '3' (ut3), a knockout board text 'KO' (gtKO)"""
+    """JP1 with user texts '1' (ut1) and '3' (ut3), a knockout board text 'KO' (gtKO); FID1's
+    designator clear of its 1 mm pad but over its 0.5 mm mask margin (SILK-PAD)"""
     sd = _typed_dir(os.path.join(d, 'utext'))
     return _tab_board(sd, 't.kicad_pcb', 30, 20,
                       _silk_fp('JP1', 10, 10, [('1', -1, 0, .6, .6, 'A'), ('3', 1, 0, .6, .6, 'B')],
                                user=[('1', -2.2, 0, 'ut1'), ('3', 2.2, 0, 'ut3')], crt=(1.5, .5))
+                      + _silk_fp('FID1', 25, 14, [('1', 0, 0, 1, 1, '', '(solder_mask_margin 0.5)')], ref_at=(0, -1.3, 0),
+                                 crt=(1.1, 1.1))
                       + '\t(gr_text "KO"\n\t\t(at 20 5 0)\n\t\t(layer "F.SilkS" knockout)\n\t\t(uuid "gtKO")\n'
                         '\t\t(effects\n\t\t\t(font\n\t\t\t\t(size 1.5 1.5)\n\t\t\t\t(thickness 0.2)\n\t\t\t)\n\t\t)\n\t)\n')
 
@@ -400,7 +404,8 @@ def suite(tmp, mini):
     srb = silk_review_board(tmp.name)
     CASES.append(("kpcb silk review", ['kpcb.py', srb, 'silk'], 0,
                   ["R1's designator over R1.1", "U1's designator under its own body",
-                   "R2's designator at 180 deg reads upside down", "R2's designator 0.8/0.1 mm under the 1/0.15 minimum"]))
+                   "R2's designator at 180 deg reads upside down", "R2's designator 0.8/0.1 mm under the 1/0.15 minimum",
+                   "1/0.15 x2, 0.8/0.1 x1 (R2)"]))
     sab = silk_art_board(tmp.name)
     CASES.append(("kpcb silk art/ttf/body", ['kpcb.py', sab, 'silk'], 0,
                   ["U5's designator under its own body", "board text 'AB' over board art",
@@ -427,6 +432,15 @@ def suite(tmp, mini):
                    'retext', 'gtKO', 'OK', 'knockout', 'JP1', 'on', 'addtext', 'GPIO', '20,15', '0', 'f', '1.2',
                    '-o', T('utext/u2.kicad_pcb')], 0,
                   ["del   ut3 (footprint user text)", "retext gtKO -> 'OK'", "addtext 'GPIO' 20,15 0 deg F.SilkS 1.2 mm"]))
+    CASES.append(("kpcb silk mask opening", ['kpcb.py', ub, 'silk'], 0, ["FID1's designator over FID1.1's mask opening"]))
+    CASES.append(("kpcb edit style", ['kpcb.py', ub, 'edit', 'style', 'JP1', 'bold', 'style', 'gtKO', 'italic', 'style', 'gtKO',
+                                      'bold', 'style', 'ut1', 'bold', 'style', 'ut1', 'nobold', '-o', T('utext/s.kicad_pcb')], 0,
+                  ["style JP1 bold", "style gtKO italic", "edit: 5 op(s)"]))
+    CASES.append(("kpcb edit style result", ['kpcb.py', T('utext/s.kicad_pcb'), 'silk', '--box', '0,0,30,20'], 0,
+                  ["1.5/0.2 knockout bold italic  [gtKO]", "JP1 designator       'JP1'                  10.000,8.500       0 deg  1/0.15 bold",
+                   "'1'                     7.800,10.000      0 deg  1/0.15  [ut1]"]))
+    CASES.append(("kpcb silk styled designators", ['kpcb.py', T('utext/s.kicad_pcb'), 'silk'], 0,
+                  ["styled designators (1; `edit style REF nobold|noitalic`): JP1 (bold)"]))
     CASES.append(("kpcb edit refuses a designator by uuid", ['kpcb.py', ub, 'edit', 'del', 'ut', '-o', T('utext/u3.kicad_pcb')],
                   1, ["matches 2 board/footprint text(s); nothing written"]))
     CASES.append(("kpcb diff silk restyle", ['kpcb.py', T('utext/u2.kicad_pcb'), 'diff', ub], 0,
