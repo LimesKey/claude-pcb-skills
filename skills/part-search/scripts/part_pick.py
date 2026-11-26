@@ -4,7 +4,7 @@ import concurrent.futures as cf
 from part_core import (buy_qty, cached, dk_categories, dk_detail, _dk_norm, dk_query, dmoney1, _EOL_RE,
                        http, jlc_annotate, jlc_detail, jlc_facets, jlc_lib_map, lcsc_detail, lcsc_search,
                        LCSC_SEARCH, price_at, resolve, third_note, trunc)
-from part_value import (alias_keys, attr_hit, attr_of, canon, enum, _exact, FLAG_ATTRS, fmt_si,
+from part_value import (alias_keys, attr_hit, attr_of, canon, enum, espan, _exact, FLAG_ATTRS, fmt_si,
                         make_pred, _norm, norm_val, series_in, _short, STD_V, _UNIT_OF)
 
 def facet_name(facets, name):
@@ -264,10 +264,10 @@ def _pick_category(a):
 def _one_pkg(s):
     """s when it names one exact package, else None. A comma normally means any-of
     ('0402,0603'), but JLC names sized parts 'SMD,11.5x10mm' / 'Plugin,P=5mm':
-    WORD,<something with a size> is one name."""
+    WORD,<something with a size>[,more] is one name ('SMD,P=2mm,Surface Mount,Right Angle')."""
     if not s or re.search(r'[~!<>]|\.\.', s):
         return None
-    return s if ',' not in s or re.fullmatch(r'[A-Za-z]+,[^,]*(\d[xX*]|mm|=)[^,]*', s) else None
+    return s if ',' not in s or re.fullmatch(r'[A-Za-z]+,[^,]*(\d[xX*]|mm|=)[^,]*(,.*)?', s) else None
 
 def _pkg_literal(cons):
     """The --pkg value when it names one exact package (JLC filters that server-side)."""
@@ -549,7 +549,7 @@ def _like(a):
     a._jcat = b.get('jcat') or (b.get('category') if b['source'] == 'JLC' else None)
     if not a._jcat:
         sys.exit(f"pick --like: {b.get('sku')} is in no JLC category; give --cat")
-    a.pkg = a.pkg or b.get('package')
+    a.pkg = a.pkg or b.get('jpkg') or b.get('package')
     a._like_mpn = b.get('mpn')
     if a.source != 'digikey':
         a.source = 'jlc'
@@ -905,6 +905,8 @@ def _alt_hold(name, value):
     x = enum(value)
     rule = next((r for r, pat in _ALT_RULES if re.search(pat, name.lower())),
                 'eq' if x is None else 'skip')
+    if rule in ('eq', 'ge') and (sp := _span_spec(value)):
+        return sp                                  # a supply range: the alternative must cover it
     if rule == 'eq':
         return str(value)
     if rule in ('ge', 'le') and x is not None:
@@ -912,6 +914,17 @@ def _alt_hold(name, value):
             rule = 'le' if rule == 'ge' else 'ge'
         return ('>=' if rule == 'ge' else '<=') + fmt_si(x)
     return None
+
+def _span_spec(v):
+    """'[lo..hi]' for a range value ('1.6V~5.5V'), else None: held by its first figure,
+    a 1.2-5.5 V part failed and a 3.0-3.6 V one that cannot run at 1.8 V passed"""
+    sp = espan(v) if '~' in str(v).split('@')[0] else None
+    return f"[{fmt_si(sp[0])}..{fmt_si(sp[1])}]" if sp and sp[0] != sp[1] else None
+
+# a connector's housing text (colour, plastic, contact alloy, flammability) is no part of
+# mating: held equal, 3 of 97,971 'Wire To Board Connector' parts met all 11 holds of a JST PH
+_CONN_CAT = re.compile(r'connector|header|socket|terminal', re.I)
+_HOUSING = re.compile(r'colou?r|material|flame|flammab', re.I)
 
 def _rare(fac, names, tot):
     """{name: parts listing it} for the names the category's facets lack or list on under
@@ -951,7 +964,8 @@ def c_alt(a):
     p = b.get('params') or []
     if b.get('source') == 'LCSC':      # LCSC lists none for some (C113132), fewer for others: JLC's too
         p = b['params'] = _merge_jlc(p, (jlc_detail(b['sku'], a.fresh) or {}).get('params'))
-    a.pkg = a.pkg or b.get('package')
+    jlc_annotate([b], a.jobs, a.fresh)
+    a.pkg = a.pkg or b.get('jpkg') or b.get('package')     # JLC's spelling: its filter is exact
     used, auto = set(), []
     for k in ('cap', 'res', 'ind', 'volt', 'tol', 'diel'):   # passives: exact names only
         name, v = _exact(p, k)
@@ -963,6 +977,8 @@ def c_alt(a):
             continue                                         # the caller's spec wins
         if k in ('cap', 'res', 'ind'):
             setattr(a, k, v)                                 # exact value
+        elif k == 'volt' and _span_spec(v):
+            a.volt = _span_spec(v)                           # an eFuse's '2.7V~23V'
         elif k in ('volt', 'tol') and x:
             setattr(a, k, ('>=' if k == 'volt' else '<=') + fmt_si(x))
         elif k == 'diel' and d in _DIEL_RANK:
@@ -976,6 +992,8 @@ def c_alt(a):
                 key=lambda h: next((i for i, t in enumerate(_B_PREF)
                                     if t in re.sub(r'[^\d/]', '', h[0])), 9))
     holds = [h for h in holds if h not in bs[1:]]
+    housing = [h for h in holds if _CONN_CAT.search(b.get('category') or '') and _HOUSING.search(h[0])]
+    holds = [h for h in holds if h not in housing]
     if not holds and not used and not a.w:
         print(f"alt: {b.get('sku')} lists no rated parameter on LCSC or JLC, so only the package "
               f"would be held. Give the limits: part.py pick --like {b.get('sku')} --w 'NAME=SPEC'")
@@ -987,7 +1005,6 @@ def c_alt(a):
     # numeric limits first (they become the table columns), secondary ratings last
     holds.sort(key=lambda h: (h[1][:1] not in '<>',
                               bool(re.search(r'dissipation|^vgs$', h[0].lower()))))
-    jlc_annotate([b], a.jobs, a.fresh)
     cat = (b.get('category') or '').split('>')[-1].strip()
     a._jcat = b.get('jcat') or (b.get('category') if b['source'] == 'JLC' else None)
     unheld = []
@@ -1015,7 +1032,9 @@ def c_alt(a):
           f"  holding (rerun `pick` with a subset of these to loosen):\n    "
           + '\n    '.join(flags + [f"--w {w!r}" for w in a.w])
           + (f"\n  not held: under 1% of '{a._jcat}' lists it, so no candidate could pass (parts listing "
-             f"it): {', '.join(unheld)}" if unheld else '') + "\n")
+             f"it): {', '.join(unheld)}" if unheld else '')
+          + (f"\n  not held, housing only (add back with --w): "
+             f"{', '.join(f'{n}={v}' for n, v in housing)}" if housing else '') + "\n")
     if third_note(b, q0, a.fresh):
         print(f"  {b.get('sku')} {third_note(b, q0, a.fresh)}\n")
     a._exclude = {b.get('sku')}
@@ -1047,6 +1066,12 @@ def _pick_selftest():
         _cat_hits('test point', ['Test Points / Test Rings', 'Test Clips']) == ['Test Points / Test Rings'],
         # JLC's sized package names carry a comma: one literal, not an any-of
         _one_pkg('SMD,11.5x10mm') == 'SMD,11.5x10mm' and _one_pkg('0402,0603') is None,
+        _one_pkg('SMD,P=2mm,Surface Mount,Right Angle') is not None and _one_pkg('SMD,SOT-23') is None,
+        # a range rating is held as a span the alternative must cover, not by its first figure
+        _alt_hold('Voltage - Supply', '1.6V~5.5V') == '[1.6..5.5]' and _alt_hold('Output Voltage', '3.3V') == '3.3V',
+        [make_pred('[1.6..5.5]')[0](v) for v in ('1.2V~5.5V', '3V~3.6V', '1.6V~5.5V', '5.5V', '-')]
+        == [True, False, True, False, False],
+        bool(_HOUSING.search('Plastic Material')) and not _HOUSING.search('Contact Plating'),
         make_pred('SMD,11.5x10mm')[0]('SMD,11.5x10mm') and not make_pred('SMD,11.5x10mm')[0]('SMD,4x4mm'),
         # alt holds: Vz / R25 / B equal, Vbr up, a TVS's C down (sub-pF must round-trip)
         [_alt_hold(n, v) for n, v in (('Zener Voltage(Nom)', '15V'), ('Zener Voltage(Range)', '14.25V~15.75V'),

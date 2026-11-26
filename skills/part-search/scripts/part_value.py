@@ -33,6 +33,14 @@ def enum(s):
         return None
     return float(m.group(1)) * (_MUL.get(m.group(2), 1.0) if m.group(2) else 1.0)
 
+def espan(s):
+    """(lo, hi) of a value: '1.6V~5.5V' -> (1.6, 5.5), '25V' -> (25, 25); None when not numeric.
+    A test condition after '@' is cut first."""
+    t = str(s if s is not None else '').split('@')[0]
+    lo, sep, hi = t.partition('~')
+    x, y = enum(lo), (enum(hi) if sep else enum(lo))
+    return None if x is None or y is None else (min(x, y), max(x, y))
+
 def fmt_si(x, unit=''):
     if x is None:
         return '?'
@@ -167,6 +175,7 @@ def _short(name):
 def make_pred(spec):
     """Constraint spec -> (predicate over raw string, label).
       '4.7u..100u'  inclusive range      '>=25' '<=50' '>1k' '<10'
+      '[1.6..5.5]'  a range value spanning all of it (lower <= 1.6, upper >= 5.5)
       'X7R,X5R'     any-of, numeric-aware ('25' matches '25V')
       '~ceramic'    case-insensitive substring
       '!X7R'        negated any-of"""
@@ -177,6 +186,12 @@ def make_pred(spec):
     if s.startswith('~'):
         needle = s[1:].lower()
         f = lambda v: needle in str(v or '').lower()
+    elif (m := re.fullmatch(r'\[(.+?)\.\.(.+)\]', s)) and enum(m.group(1)) is not None \
+            and enum(m.group(2)) is not None:
+        lo, hi = sorted((enum(m.group(1)), enum(m.group(2))))
+        def f(v, lo=lo, hi=hi):
+            sp = espan(v)
+            return sp is not None and sp[0] <= lo + abs(lo) * 1e-3 and sp[1] >= hi - abs(hi) * 1e-3
     else:
         m = re.fullmatch(r'(.+?)\.\.(.+)', s)
         if m and enum(m.group(1)) is not None and enum(m.group(2)) is not None:

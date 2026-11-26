@@ -713,6 +713,8 @@ def jlc_annotate(recs, jobs=8, fresh=False):
         r['library'] = h.get('library') if h else 'none'
         if h:
             r['jcat'] = h.get('category')      # JLC's exact name, for a category pool
+            r['jpkg'] = h.get('package')       # and package: LCSC's 'Surface Mount,Right Angle'
+                                               # is JLC's 'Surface Mount，Right Angle' (full-width)
     with cf.ThreadPoolExecutor(max_workers=jobs) as ex:
         list(ex.map(one, todo))
     return recs

@@ -103,7 +103,8 @@ def _fill_cross(idx, t):
         x, y = ax + (bx - ax) * k / n, ay + (by - ay) * k / n
         for gx in range(math.floor((x - hw) / c) - 1, math.floor((x + hw) / c) + 2):
             for gy in range(math.floor((y - hw) / c) - 1, math.floor((y + hw) / c) + 2):
-                for e0, e1 in idx.grid.get((gx, gy), ()) if (gx, gy) not in seen else ():
+                for x1, y1, x2, y2 in idx.cells(gy).get(gx, ()) if (gx, gy) not in seen else ():
+                    e0, e1 = (x1, y1), (x2, y2)
                     if seg_seg_dist(t['a'], t['b'], e0, e1) <= hw + .01:
                         m = 4 * n                    # the nearest point of the track to that edge
                         return min(range(m + 1), key=lambda j: pt_seg_dist(

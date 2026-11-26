@@ -248,35 +248,43 @@ class PolyIndex:
     O(edges in one 0.5 mm row): an edge a horizontal ray at y can cross must
     span y, so bucketing edges by y is exact."""
     def __init__(self, pts, cell=0.5):
+        # every edge, in ring order (a horizontal one too: each reader's (y1 > y) != (y2 > y) skips it,
+        # and cells(), the old whole grid built a row at a time, needs it)
         self.pts, self.cell, self.rows = pts, cell, defaultdict(list)
         self.bbox = bbox(pts)
+        self._grid, self._free = {}, {}
         for (x1, y1), (x2, y2) in zip(pts, pts[1:] + pts[:1]):
-            if y1 != y2:
-                for k in range(math.floor(min(y1, y2) / cell), math.floor(max(y1, y2) / cell) + 1):
-                    self.rows[k].append((x1, y1, x2, y2))
+            for k in range(math.floor(min(y1, y2) / cell), math.floor(max(y1, y2) / cell) + 1):
+                self.rows[k].append((x1, y1, x2, y2))
 
-    @cached_property
-    def grid(self):
-        """edges by (x, y) cell, for touches(): only fill-to-fill merging needs it"""
-        g, c = defaultdict(list), self.cell
-        for (x1, y1), (x2, y2) in zip(self.pts, self.pts[1:] + self.pts[:1]):
-            for cx in range(math.floor(min(x1, x2) / c), math.floor(max(x1, x2) / c) + 1):
-                for k in range(math.floor(min(y1, y2) / c), math.floor(max(y1, y2) / c) + 1):
-                    g[(cx, k)].append(((x1, y1), (x2, y2)))
-        return g
+    def cells(self, k):
+        """{cx: edges whose box meets cell (cx, k), ring order}, built on first use from row k: only
+        the rows a query reaches (a 10k-point pour's whole grid was most of a GND Copper build)"""
+        r = self._grid.get(k)
+        if r is None:
+            r, c = self._grid.setdefault(k, defaultdict(list)), self.cell
+            for e in self.rows.get(k, ()):
+                for cx in range(math.floor(min(e[0], e[2]) / c), math.floor(max(e[0], e[2]) / c) + 1):
+                    r[cx].append(e)
+        return r
 
     def touches(self, p, tol=0.01):
-        """inside, or within tol of the outline (a shared boundary reads either way)"""
-        b = self.bbox
-        if not (b[0] - tol <= p[0] <= b[2] + tol and b[1] - tol <= p[1] <= b[3] + tol):
+        """inside, or within tol of the outline (a shared boundary reads either way). With no edge
+        in the cells within tol, p shares its edge-free cell's inside-ness, cached per cell"""
+        b, (x, y) = self.bbox, p
+        if not (b[0] - tol <= x <= b[2] + tol and b[1] - tol <= y <= b[3] + tol):
             return False
-        if p in self:
-            return True
         c = self.cell
-        return any(pt_seg_dist(p, a, b) <= tol
-                   for gx in range(math.floor((p[0] - tol) / c), math.floor((p[0] + tol) / c) + 1)
-                   for gy in range(math.floor((p[1] - tol) / c), math.floor((p[1] + tol) / c) + 1)
-                   for a, b in self.grid.get((gx, gy), ()))
+        gx = range(math.floor((x - tol) / c), math.floor((x + tol) / c) + 1)
+        near = [e for gy in range(math.floor((y - tol) / c), math.floor((y + tol) / c) + 1)
+                for row in [self.cells(gy)] for cx in gx for e in row.get(cx, ())]
+        if not near:
+            key = (math.floor(x / c), math.floor(y / c))
+            hit = self._free.get(key)
+            if hit is None:     # the centre is >= c/2 from any edge outside the cell: a robust cast
+                hit = self._free[key] = ((key[0] + .5) * c, (key[1] + .5) * c) in self
+            return hit
+        return p in self or any(pt_seg_dist(p, (x1, y1), (x2, y2)) <= tol for x1, y1, x2, y2 in near)
 
     def __contains__(self, p):
         x, y = p

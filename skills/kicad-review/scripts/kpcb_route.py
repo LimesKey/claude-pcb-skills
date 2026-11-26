@@ -448,7 +448,8 @@ class Grid:
     """one routing window: per-layer `blocked` rasters for a track centreline of width
     w, a `vblk` raster for a through via, and a foreign-pour cost raster. Tracks/vias
     this pass laid whose `rid` is in `soft` go in sblk/svblk instead: passable at the
-    rip-up cost. vias=False: only the track rasters (Clear's check paints no via rasters)"""
+    rip-up cost. vias=False: only the track rasters, no via or pour raster (Clear and zoneshape
+    read blk alone; only astar reads pour, and painting the planes was 43% of a Clear grid)"""
 
     def __init__(self, b, net, box, res, w, vsz, vdr, layers, extra_clr=0.0, cut=False, soft=frozenset(), ownpads=True,
                  vias=True):
@@ -466,8 +467,10 @@ class Grid:
         self.svblk = bytearray(N) if soft else None
         if not vias:
             self.vblk = self.vpour = SINK
+            self.pour = {ly: SINK for ly in layers}
             self.svblk = SINK if soft else None
         self.follow, self.follow_k = None, 4.0          # `route --pair`: per-layer deviation from the partner
+        self._disks = {}                                # (raster id, x, y) -> largest disk radius painted there
         clr = _clearance_fn(b)[0]
         # a straight step of length s between two clear grid points dips at most
         # s^2/(8R) into a convex obstacle inflated by R (>= ~0.2 mm here): ~0.003 mm
@@ -477,32 +480,7 @@ class Grid:
         def near(bb):
             return bb[2] >= gbox[0] and bb[0] <= gbox[2] and bb[3] >= gbox[1] and bb[1] <= gbox[3]
 
-        xr = (self.x0 - res, self.x0 + self.W * res)    # a shape wholly left or right of the raster paints
-                                                        # nothing, yet cost f(y) per row (a fifth of Clear's rows)
-        def paint(ras, shape, R):
-            if ras is SINK:
-                return
-            k = shape[0]
-            if k == 'cap':
-                c0, c1, r = min(shape[1][0], shape[2][0]), max(shape[1][0], shape[2][0]), shape[3] + R
-            elif k == 'rot':
-                c0 = c1 = shape[1]['x']
-                r = math.hypot(shape[1]['sx'], shape[1]['sy']) / 2 + R
-            else:                                        # disk (cx, cy, r0), rect (cx, cy, hx, hy)
-                c0 = c1 = shape[1]
-                r = shape[3] + R
-            if c1 + r < xr[0] or c0 - r > xr[1]:
-                return
-            y_lo, y_hi, f = _iv(shape, R)
-            W = self.W
-            for jj in range(max(0, math.ceil((y_lo - self.y0) / res)), min(self.H - 1, math.floor((y_hi - self.y0) / res)) + 1):
-                iv = f(self.y0 + jj * res)
-                if iv:
-                    i0 = max(0, math.ceil((iv[0] - self.x0) / res - 1e-9))
-                    i1 = min(W - 1, math.floor((iv[1] - self.x0) / res + 1e-9))
-                    if i0 <= i1:
-                        ras[jj * W + i0:jj * W + i1 + 1] = ONES[:i1 - i0 + 1]
-
+        paint = self.paint
         pads = [(f, p) for f in b.fps.values() if f.placed for p in f.pads if p['kind'] != 'np_thru_hole']
         holes, drilled = [], []
         for f in b.fps.values():                         # NPTH: hole to track/via 0.2 (the .kicad_dru)
@@ -582,8 +560,10 @@ class Grid:
         hc = _hole_clr(b)                                     # hole to track, any net: a PTH's 0.28 rule
         for x_, y_, r_, kind, own, B in drilled:              # reaches past its ring + copper clearance
             if not own:
-                for ras in B.values():
-                    paint(ras, ('disk', x_, y_, r_), hc[kind] + extra_clr + w / 2 + m)
+                R = hc[kind] + extra_clr + w / 2 + m
+                for ras in B.values():      # inside its via's / round pad's own disk: paints nothing new
+                    if self._disks.get((id(ras), x_, y_), -1.0) < r_ + R:     # (a fifth of Clear's rows)
+                        paint(ras, ('disk', x_, y_, r_), R)
         # board edge (as capsule obstacles) and outside the outline (scanline)
         ec = b.edge_clearance()
         for u, v in b.edge_segs:
@@ -645,6 +625,98 @@ class Grid:
                     if near((min(u[0], v[0]), min(u[1], v[1]), max(u[0], v[0]), max(u[1], v[1]))):
                         paint(self.blk[fl['layer']], ('cap', u, v, 0.0), c + w / 2 + m)
             self.fill_rows(_pidx(b, fl), self.vpour)        # ...a via only punches a hole: a cost
+
+    def paint(self, ras, shape, R):
+        """shape grown by R into raster ras, row by row. A disk's and a capsule's row interval
+        is _iv's arithmetic inlined, with comparisons for min/max (same values, ties included):
+        30M builtin calls were half of a Clear grid's build"""
+        if ras is SINK:
+            return
+        k, res, W, x0, y0 = shape[0], self.res, self.W, self.x0, self.y0
+        if k == 'cap':
+            c0, c1, r = min(shape[1][0], shape[2][0]), max(shape[1][0], shape[2][0]), shape[3] + R
+        elif k == 'rot':
+            c0 = c1 = shape[1]['x']
+            r = math.hypot(shape[1]['sx'], shape[1]['sy']) / 2 + R
+        else:                                        # disk (cx, cy, r0), rect (cx, cy, hx, hy)
+            c0 = c1 = shape[1]
+            r = shape[3] + R
+        # a shape wholly left or right of the raster paints nothing, yet cost a row each
+        if c1 + r < x0 - res or c0 - r > x0 + W * res:
+            return
+        ceil, floor, sqrt = math.ceil, math.floor, math.sqrt
+        if k == 'cap' and math.hypot(shape[2][0] - shape[1][0], shape[2][1] - shape[1][1]) < 1e-9:
+            shape, k = ('disk', shape[1][0], shape[1][1], shape[3]), 'disk'
+        if k == 'disk':
+            _k, cx, cy, r0 = shape
+            r = r0 + R
+            y_lo, y_hi, rr = cy - r, cy + r, r * r
+            key = (id(ras), cx, cy)         # a smaller concentric disk is a subset, cell for cell:
+            if self._disks.get(key, -1.0) < r:      # every step (r*r, sqrt, ceil/floor) is monotone
+                self._disks[key] = r
+        elif k == 'cap':
+            _k, (ax, ay), (bx, by), hw = shape
+            r = hw + R
+            L = math.hypot(bx - ax, by - ay)
+            tx, ty = (bx - ax) / L, (by - ay) / L
+            rr, ty0, tx0 = r * r, abs(ty) < 1e-12, abs(tx) < 1e-12
+            y_lo, y_hi = (ay if ay <= by else by) - r, (ay if ay >= by else by) + r
+        else:
+            y_lo, y_hi, f = _iv(shape, R)
+        j0, j1 = ceil((y_lo - y0) / res), floor((y_hi - y0) / res)
+        for jj in range(j0 if j0 > 0 else 0, (j1 if j1 < self.H - 1 else self.H - 1) + 1):
+            y = y0 + jj * res
+            if k == 'disk':
+                d = abs(y - cy)
+                if d > r:
+                    continue
+                d = sqrt(rr - d * d)
+                lo, hi = cx - d, cx + d
+            elif k == 'cap':                         # the end disks and the band, unioned
+                lo = None
+                d = abs(y - ay)
+                if d <= r:
+                    d = sqrt(rr - d * d)
+                    lo, hi = ax - d, ax + d
+                d = abs(y - by)
+                if d <= r:
+                    d = sqrt(rr - d * d)
+                    if lo is None:
+                        lo, hi = bx - d, bx + d
+                    else:
+                        lo, hi = (lo if lo <= bx - d else bx - d), (hi if hi >= bx + d else bx + d)
+                blo, bhi = -1e18, 1e18
+                c1, c2 = tx * (y - ay), ty * (y - ay)    # |n.(p-a)| <= r, 0 <= t.(p-a) <= L
+                if ty0:
+                    if abs(c1) > r:
+                        blo, bhi = 1.0, 0.0
+                else:
+                    u1, u2 = (r + c1) / ty, (c1 - r) / ty
+                    t0, t1 = ax + (u1 if u1 <= u2 else u2), ax + (u1 if u1 >= u2 else u2)
+                    blo, bhi = (blo if blo >= t0 else t0), (bhi if bhi <= t1 else t1)
+                if tx0:
+                    if not (-1e-12 <= c2 <= L + 1e-12):
+                        blo, bhi = 1.0, 0.0
+                else:
+                    u1, u2 = -c2 / tx, (L - c2) / tx
+                    t0, t1 = ax + (u1 if u1 <= u2 else u2), ax + (u1 if u1 >= u2 else u2)
+                    blo, bhi = (blo if blo >= t0 else t0), (bhi if bhi <= t1 else t1)
+                if blo <= bhi:
+                    if lo is None:
+                        lo, hi = blo, bhi
+                    else:
+                        lo, hi = (lo if lo <= blo else blo), (hi if hi >= bhi else bhi)
+                elif lo is None:
+                    continue
+            else:
+                iv = f(y)
+                if not iv:
+                    continue
+                lo, hi = iv
+            i0, i1 = ceil((lo - x0) / res - 1e-9), floor((hi - x0) / res + 1e-9)
+            i0, i1 = (i0 if i0 > 0 else 0), (i1 if i1 < W - 1 else W - 1)
+            if i0 <= i1:
+                ras[jj * W + i0:jj * W + i1 + 1] = ONES[:i1 - i0 + 1]
 
     @staticmethod
     def spans(idx, y):

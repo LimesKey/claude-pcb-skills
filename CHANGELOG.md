@@ -3,6 +3,34 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] part-search/part_pick - `alt` held a range rating by its first figure ('Voltage - Supply' 1.6V~5.5V became
+      `>=1.6`: a 1.2-5.5 V part failed, a 3.0-3.6 V one passed; an eFuse's 2.7V~23V became `--volt '>=2.7'`).
+      Done: new spec `[lo..hi]` (a range value covering all of it: lower <= lo, upper >= hi), which `alt`
+      holds for a range value of any `>=` or equal-text rating (`--volt` too). C78541 now holds
+      `Voltage - Supply=[1.6..5.5]`. Selftest: pick checks. 2026-11-26.
+- [x] part-search/part_pick - `alt` of a connector found nothing: it held housing text equal (colour, plastic and
+      contact material, flammability), and its package never reached JLC's filter. Owner's call taken by
+      default: in a connector/header/socket/terminal category the housing text is not held (named on a `not
+      held, housing only` line to add back). And the package: `_one_pkg` read 'SMD,P=2mm,Surface Mount,Right
+      Angle' (2+ commas) as an any-of, and LCSC's spelling is not JLC's (JLC writes 'Surface Mount，Right Angle',
+      a full-width comma; its filter is exact). Now WORD,<size>,... is one name and `alt` / `pick --like` take
+      JLC's own spelling (`jlc_annotate` keeps `jpkg`). `alt C295747` (JST PH) 0 -> 6 PH-compatible parts. A
+      female header (C46635853) still finds none, honestly: its pin count is on 6% of the category, and
+      dropping it (a 10% cut was tried) offered 2x7 and 2x10 parts. Selftest: pick checks. 2026-11-26.
+- [x] kicad-review/kpcb_board - `dead_copper(GND)` 1.30 -> 0.95 s on the reference board, byte-identical
+      (`dead_copper` GND/+3V3 and `dead_all` compared). `PolyIndex.touches` built a whole-polygon edge grid for
+      each of 160 fills (10k+ points a pour) and ray-cast every vertex. Done: `rows` holds every edge in ring
+      order (a horizontal one too: each reader's `(y1 > y) != (y2 > y)` skips it), `cells(k)` builds a grid
+      row from it on first use (same cell contents, same order, so `_fill_cross` is unchanged), and a point
+      with no edge within tol takes its edge-free cell's cached inside-ness (190k ray casts -> 65k). 2026-11-26.
+- [x] kicad-review/kpcb_route - a `Grid` build, exact speedups (every router, Clear and zoneshape window):
+      `paint` is a method with a disk's and a capsule's row interval inlined, comparisons for min/max (30M
+      builtin calls; ties resolve the same); a hole disk inside its via's concentric disk on the same raster
+      is skipped (a subset cell for cell: every step is monotone); a `vias=False` grid paints no pour raster
+      (only `astar` reads it; the planes were 43% of a Clear grid). `kpcb_smooth._paint`, a copy, now calls it.
+      `Clear.seg` gathers its samples' raster bytes with `itemgetter` and finds the blocked ones in C, and
+      `on_old` prefilters by box. `tracks --kind jog --max 999` 7.8 -> 5.3 s byte-identical, `smooth --all`
+      82 -> 71 s identical bar uuids, 100 6x4 mm Clear grids 1.22 -> 0.90 s (same raster hash). 2026-11-26.
 - [x] part-search/part_pick - `alt` held every parameter the original lists, including ones its JLC category
       does not carry or lists on a handful of parts, so every candidate failed them: on the current tree 10 of
       the 12 parts the reference board's sessions `alt`'d found nothing, and so did `alt C25744` (a 0402 10k

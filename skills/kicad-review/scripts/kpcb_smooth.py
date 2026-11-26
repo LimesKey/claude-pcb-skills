@@ -49,10 +49,11 @@ changed tracks are deleted; the refill re-creates those whose track is <= 0.9x t
 pad/via (td_width_to_size_filter_ratio).
 ponytail: one Grid per chain at 0.02 mm, ~60 s on the reference board; a shared per-net window if it gets slow."""
 import glob, math, os, re, shutil
+from operator import itemgetter
 from collections import defaultdict, Counter
 from kpcb_board import Board, PolyIndex, _pidx, bbox, pad_box, pt_seg_dist, seg_seg_dist, seg_box_dist
 from kpcb_copper import _local, pad_dist, pad_within
-from kpcb_route import Grid, _iv, _legs, _pad_shape, _planes, _kos, _hole_clr
+from kpcb_route import Grid, _legs, _pad_shape, _planes, _kos, _hole_clr
 from kpcb_move import via_layers, is_arc
 from kpcb_zones import _clearance_fn
 from kpcb_edit import PcbText, tear_edits, num
@@ -385,18 +386,6 @@ class Exact:
             not any(idx.touches(x, hw + 0.01) for idx in self.kos for x in pts)
 
 
-def _paint(g, ras, shape, R):
-    """the Grid's own scanline painter: shape grown by R into raster ras"""
-    y_lo, y_hi, f = _iv(shape, R)
-    for j in range(max(0, math.ceil((y_lo - g.y0) / g.res)), min(g.H - 1, math.floor((y_hi - g.y0) / g.res)) + 1):
-        iv = f(g.y0 + j * g.res)
-        if iv:
-            i0 = max(0, math.ceil((iv[0] - g.x0) / g.res - 1e-9))
-            i1 = min(g.W - 1, math.floor((iv[1] - g.x0) / g.res + 1e-9))
-            if i0 <= i1:
-                ras[j * g.W + i0:j * g.W + i1 + 1] = b'\x01' * (i1 - i0 + 1)
-
-
 class Clear:
     """is a centreline segment clear for this chain: the grid first (every sample's nearest
     point free, or on the old centreline), Exact where the grid refuses; and new copper may
@@ -407,7 +396,7 @@ class Clear:
         self.box = box = (min(xs) - 0.6, min(ys) - 0.6, max(xs) + 0.6, max(ys) + 0.6)
         self.b, self.net, self.ly, self.w, self.res = b, net, ly, w, res
         self.g = g = Grid(b, net, box, res, w, 0.6, 0.3, [ly], extra_clr=res * 0.8, vias=False)
-        self.blk, self.old, self._ex = g.blk[ly], list(zip(pts, pts[1:])), None
+        self.blk, self.old, self._ex, self._ob = g.blk[ly], list(zip(pts, pts[1:])), None, None
         # same-net copper the chain must not newly touch (a sense tap that touched its power
         # copper somewhere new would move its sense point): `own` is that copper grown by w/2,
         # `allow` 0.5 mm round where the old chain already touched it. The anchors' own
@@ -423,30 +412,30 @@ class Clear:
         for f in b.fps.values():
             for p in f.pads if f.placed else ():
                 if p['net'] == net and on_layer(p, ly) and near(pad_box(p)) and not any(in_pad(p, e, w / 2) for e in ends):
-                    _paint(g, self.own, _pad_shape(p, pad_box(p)), R)
+                    g.paint(self.own, _pad_shape(p, pad_box(p)), R)
         for v in b.vias:
             if v['net'] == net and ly in via_layers(v, b.copper) and \
                     all(math.dist(e, (v['x'], v['y'])) > (v['size'] + w) / 2 for e in ends):
-                _paint(g, self.own, ('disk', v['x'], v['y'], v['size'] / 2), R)
+                g.paint(self.own, ('disk', v['x'], v['y'], v['size'] / 2), R)
         for t in b.tracks:
             if t['net'] == net and t['layer'] == ly and t['uuid'] not in mine and near(bbox([t['a'], t['b']])):
-                _paint(g, self.own, ('cap', t['a'], t['b'], t['w'] / 2), R)
+                g.paint(self.own, ('cap', t['a'], t['b'], t['w'] / 2), R)
         for fl in b.fills:
             if fl['net'] == net and fl['layer'] == ly and near(fl['bbox']):
                 g.fill_rows(_pidx(b, fl), self.own)
                 ring = fl['pts']
                 for u, v in zip(ring, ring[1:] + ring[:1]):
-                    _paint(g, self.own, ('cap', u, v, 0.0), R)
+                    g.paint(self.own, ('cap', u, v, 0.0), R)
         for a, c in self.old:                       # each run of samples on own copper: a 0.5 mm capsule
             s = e = None                            # (a disk per 0.01 mm sample was 98% overlap)
             for p, k in zip(*self._ks(a, c)):
                 if k >= 0 and self.own[k]:
                     s, e = s or p, p
                 elif s:
-                    _paint(g, self.allow, ('cap', s, e, 0.0), 0.5)
+                    g.paint(self.allow, ('cap', s, e, 0.0), 0.5)
                     s = None
             if s:
-                _paint(g, self.allow, ('cap', s, e, 0.0), 0.5)
+                g.paint(self.allow, ('cap', s, e, 0.0), 0.5)
         self.has_own = 1 in self.own
 
     @property
@@ -457,25 +446,39 @@ class Clear:
         return self._ex
 
     def _ks(self, a, c):
-        """(samples res/2 apart along a-c, each one's raster index or -1 off the grid)"""
+        """(samples res/2 apart along a-c, each one's raster index or -1 off the grid). By
+        comprehensions: smooth's inner loop (6*10^7 samples for --all on the reference board)"""
         g = self.g
         x0, y0, r, W, H = g.x0, g.y0, g.res, g.W, g.H
         n = max(1, math.ceil(math.dist(a, c) / (r / 2)))
-        ps = [(a[0] + (c[0] - a[0]) * k / n, a[1] + (c[1] - a[1]) * k / n) for k in range(n + 1)]
-        ks = []                                     # inline: smooth's inner loop (~10^7 samples a board)
-        for px, py in ps:
-            i, j = round((px - x0) / r), round((py - y0) / r)
-            ks.append(j * W + i if 0 <= i < W and 0 <= j < H else -1)
-        return ps, ks
+        ax, ay, dx, dy = a[0], a[1], c[0] - a[0], c[1] - a[1]
+        xs = [ax + dx * k / n for k in range(n + 1)]
+        ys = [ay + dy * k / n for k in range(n + 1)]
+        I, J = [round((x - x0) / r) for x in xs], [round((y - y0) / r) for y in ys]
+        if 0 <= min(I) and max(I) < W and 0 <= min(J) and max(J) < H:
+            ks = [j * W + i for i, j in zip(I, J)]
+        else:
+            ks = [j * W + i if 0 <= i < W and 0 <= j < H else -1 for i, j in zip(I, J)]
+        return list(zip(xs, ys)), ks
 
     def on_old(self, p):
-        return any(pt_seg_dist(p, a, c) <= 2e-4 for a, c in self.old)
+        if self._ob is None or self._ob[0] is not self.old:     # callers reassign .old
+            e = 3e-4                    # > the 2e-4 test: a point off a segment's grown box is farther
+            self._ob = (self.old, [(min(a[0], c[0]) - e, min(a[1], c[1]) - e, max(a[0], c[0]) + e,
+                                    max(a[1], c[1]) + e, a, c) for a, c in self.old])
+        x, y = p
+        return any(pt_seg_dist(p, a, c) <= 2e-4 for x0, y0, x1, y1, a, c in self._ob[1]
+                   if x0 <= x <= x1 and y0 <= y <= y1)
 
     def contact_ok(self, a, c, ks=None):
         if not self.has_own:
             return True
-        own, allow = self.own, self.allow
-        return not any(k >= 0 and own[k] and not allow[k] for k in (self._ks(a, c)[1] if ks is None else ks))
+        ks = self._ks(a, c)[1] if ks is None else ks
+        if -1 in ks:
+            own, allow = self.own, self.allow
+            return not any(k >= 0 and own[k] and not allow[k] for k in ks)
+        get = itemgetter(*ks)           # >= 2 samples: a tuple, gathered in C (own/allow are 0/1)
+        return not int.from_bytes(bytes(get(self.own))) & ~int.from_bytes(bytes(get(self.allow)))
 
     def _line(self, a, c):
         """seg() of a horizontal / vertical a-c by raster slices, or None to walk the samples:
@@ -508,9 +511,17 @@ class Clear:
         if not self.contact_ok(a, c, ks):
             return False
         blk = self.blk
-        for p, k in zip(ps, ks):
-            if (k < 0 or blk[k]) and not self.on_old(p):
+        if -1 in ks:
+            for p, k in zip(ps, ks):
+                if (k < 0 or blk[k]) and not self.on_old(p):
+                    return self.exact.seg(a, c)
+            return True
+        hit = bytes(itemgetter(*ks)(blk))           # blocked samples only, found in C (blk is 0/1)
+        i = hit.find(1)
+        while i != -1:
+            if not self.on_old(ps[i]):
                 return self.exact.seg(a, c)
+            i = hit.find(1, i + 1)
         return True
 
     def poly(self, pts):

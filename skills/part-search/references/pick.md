@@ -128,7 +128,12 @@ tolerance <=, dielectric same class or better). Every other parameter goes throu
 direction table: voltage/current/power ratings `>=`; RDS(on), Vf, leakage, clamping,
 DCR/ESR, threshold, dropout `<=`; type, polarity, channel count, output voltage,
 frequency, colour equal; capacitances, charge, breakdown and temperature ranges not
-held. A negative value (P-channel) flips the direction. It prints every hold as a
+held. A range value (`Voltage - Supply` 1.6V~5.5V, an eFuse's 2.7V~23V) is held as
+`[1.6..5.5]`: the alternative's range must cover it, so a 1.2-5.5 V part passes and a
+3.0-3.6 V one fails. In a connector, header, socket or terminal category the housing text
+(colour, plastic/contact material, flammability) is not held: it is no part of mating, and
+holding it left 3 of 97,971 wire-to-board parts for a JST PH (now 6 PH clones). The
+`not held, housing only` line names them. A negative value (P-channel) flips the direction. It prints every hold as a
 `--w` flag, so loosen by re-running `pick` with a subset. RDS(on) is compared as the
 number before `@`: a `4.6mΩ@4.5V` part beats `5mΩ@10V` on paper, and the column
 shows the condition so a different test voltage is visible.
@@ -147,13 +152,14 @@ Every `--flag` and every `--w NAME=SPEC` takes the same spec grammar:
 | --- | --- |
 | `22uF` | equal (numeric, so `22uF` never matches `2.2uF`) |
 | `4.7u..100u` | inclusive range |
+| `[1.6..5.5]` | a range value (`1.6V~5.5V`) covering all of it: lower <= 1.6, upper >= 5.5 |
 | `>=25` `<=50` `>1k` `<10` | comparison |
 | `X7R,X5R` | any-of; numeric-aware, so `25` matches `25V` |
 | `~ceramic` | case-insensitive substring |
 | `!X5R` | negated |
 
 Values parse as engineering notation: `4u7`, `100nF`, `4R7`, `10k`, `±20%`, `25V`
-all work, `10V~35V` takes the first figure, and LCSC's test conditions are cut at
+all work, `10V~35V` takes the first figure (except under `[a..b]`), and LCSC's test conditions are cut at
 `@` (`5mΩ@10V` -> 5 mΩ, `450mV@1A` -> 450 mV, `15A@8/20us` -> 15 A).
 
 ## Attribute shorthands
