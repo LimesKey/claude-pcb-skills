@@ -37,6 +37,33 @@ def _planes(b):
     return b._planes
 
 
+def _hole_clr(b):
+    """{'via', 'pth', 'npth'}: the hole_clearance a track keeps from each kind of hole - the
+    .kicad_pro minimum (0.2), raised by each .kicad_dru rule whose condition names that kind
+    (A.Type == 'Via', A.isPlated(), NPTH), every kind by a rule naming none. One max for all
+    read the PTH 0.28 at J7's NPTH pegs (0.2) and boxed in a VBUS escape laid by hand."""
+    if '_hclr' in b.__dict__:                        # once per board: every Exact asks
+        return b._hclr
+    import glob, json, os
+    d, floor = os.path.dirname(os.path.abspath(b.path)), 0.2
+    for pro in glob.glob(os.path.join(d, '*.kicad_pro')):
+        try:
+            floor = max(floor, float(json.load(open(pro))['board']['design_settings']['rules']['min_hole_clearance']))
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+    out = dict.fromkeys(('via', 'pth', 'npth'), floor)
+    for dru in glob.glob(os.path.join(d, '*.kicad_dru')):
+        txt = open(dru, encoding='utf-8', errors='replace').read()
+        for m in re.finditer(r'\(constraint hole_clearance \(min ([\d.]+)mm\)\)(?:\s*\(condition "([^"]*)"\))?', txt):
+            cond = m[2] or ''
+            ks = [k for k, hit in (('via', "Type == 'Via'" in cond), ('npth', 'NPTH' in cond),
+                                   ('pth', 'isPlated()' in cond and 'NPTH' not in cond)) if hit] or list(out)
+            for k in ks:
+                out[k] = max(out[k], float(m[1]))
+    b._hclr = out
+    return out
+
+
 def _kos(b):
     """rule areas, read once per board (each read re-parses the whole file)"""
     if '_kos' not in b.__dict__:
@@ -477,7 +504,7 @@ class Grid:
                         ras[jj * W + i0:jj * W + i1 + 1] = ONES[:i1 - i0 + 1]
 
         pads = [(f, p) for f in b.fps.values() if f.placed for p in f.pads if p['kind'] != 'np_thru_hole']
-        holes = []
+        holes, drilled = [], []
         for f in b.fps.values():                         # NPTH: hole to track/via 0.2 (the .kicad_dru)
             for p in f.pads:
                 if f.placed and p['kind'] == 'np_thru_hole' and p['drill'] and near(pad_box(p)):
@@ -509,6 +536,8 @@ class Grid:
             lys = set(cu) if p['drill'] else cu_layers(p['layers'], cu)
             if p['drill']:
                 holes.append((p['x'], p['y'], p['drill'] / 2))
+                drilled.append((p['x'], p['y'], p['drill'] / 2, 'npth' if p['kind'] == 'np_thru_hole' else 'pth',
+                                p['net'] == net and net, self.blk))
             sh = _pad_shape(p, bb)
             same = p['net'] == net and net
             for ly in lys:
@@ -538,6 +567,7 @@ class Grid:
                 continue
             B, VB = (self.sblk, self.svblk) if v.get('rid') in soft else (self.blk, self.vblk)
             holes.append((v['x'], v['y'], v['drill'] / 2, VB))
+            drilled.append((v['x'], v['y'], v['drill'] / 2, 'via', v['net'] == net and net, B))
             if v['net'] == net and net:
                 continue
             sh = ('disk', v['x'], v['y'], r0)
@@ -549,6 +579,11 @@ class Grid:
                 paint(VB, sh, max(clr(net, v['net'], 'via', 'via', ly) for ly in vl) + extra_clr + vsz / 2 + m)
         for hx_, hy_, hr, *VB in holes:                      # hole to hole, any net
             paint(VB[0] if VB else self.vblk, ('disk', hx_, hy_, hr), vdr / 2 + 0.25 + m)
+        hc = _hole_clr(b)                                     # hole to track, any net: a PTH's 0.28 rule
+        for x_, y_, r_, kind, own, B in drilled:              # reaches past its ring + copper clearance
+            if not own:
+                for ras in B.values():
+                    paint(ras, ('disk', x_, y_, r_), hc[kind] + extra_clr + w / 2 + m)
         # board edge (as capsule obstacles) and outside the outline (scanline)
         ec = b.edge_clearance()
         for u, v in b.edge_segs:

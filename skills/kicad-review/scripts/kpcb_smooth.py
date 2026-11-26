@@ -52,7 +52,7 @@ import glob, math, os, re, shutil
 from collections import defaultdict, Counter
 from kpcb_board import Board, PolyIndex, _pidx, bbox, pad_box, pt_seg_dist, seg_seg_dist, seg_box_dist
 from kpcb_copper import _local, pad_dist, pad_within
-from kpcb_route import Grid, _iv, _legs, _pad_shape, _planes, _kos
+from kpcb_route import Grid, _iv, _legs, _pad_shape, _planes, _kos, _hole_clr
 from kpcb_move import via_layers, is_arc
 from kpcb_zones import _clearance_fn
 from kpcb_edit import PcbText, tear_edits, num
@@ -294,33 +294,6 @@ def chains(b, skip, ix=None, only=None):
 
 
 # ---------------------------------------------------------------- clearance
-
-def _hole_clr(b):
-    """{'via', 'pth', 'npth'}: the hole_clearance a track keeps from each kind of hole - the
-    .kicad_pro minimum (0.2), raised by each .kicad_dru rule whose condition names that kind
-    (A.Type == 'Via', A.isPlated(), NPTH), every kind by a rule naming none. One max for all
-    read the PTH 0.28 at J7's NPTH pegs (0.2) and boxed in a VBUS escape laid by hand."""
-    if '_hclr' in b.__dict__:                        # once per board: every Exact asks
-        return b._hclr
-    import glob, json
-    d, floor = os.path.dirname(os.path.abspath(b.path)), 0.2
-    for pro in glob.glob(os.path.join(d, '*.kicad_pro')):
-        try:
-            floor = max(floor, float(json.load(open(pro))['board']['design_settings']['rules']['min_hole_clearance']))
-        except (OSError, ValueError, KeyError, TypeError):
-            pass
-    out = dict.fromkeys(('via', 'pth', 'npth'), floor)
-    for dru in glob.glob(os.path.join(d, '*.kicad_dru')):
-        txt = open(dru, encoding='utf-8', errors='replace').read()
-        for m in re.finditer(r'\(constraint hole_clearance \(min ([\d.]+)mm\)\)(?:\s*\(condition "([^"]*)"\))?', txt):
-            cond = m[2] or ''
-            ks = [k for k, hit in (('via', "Type == 'Via'" in cond), ('npth', 'NPTH' in cond),
-                                   ('pth', 'isPlated()' in cond and 'NPTH' not in cond)) if hit] or list(out)
-            for k in ks:
-                out[k] = max(out[k], float(m[1]))
-    b._hclr = out
-    return out
-
 
 def seg_pad_dist(a, c, pad):
     """segment pq to a pad's copper: a circle exactly, a rect in its own frame exactly,
@@ -985,8 +958,8 @@ def corner_nodes(b, skip, ix):
         if net in skip or len(lst) != 2:
             continue
         t1, t2 = b.tracks[lst[0]], b.tracks[lst[1]]
-        if any(is_arc(t) or t['locked'] or t['len'] < 1e-4 for t in (t1, t2)):
-            continue
+        if any(is_arc(t) or t['locked'] or t['len'] < 1e-4 for t in (t1, t2)) or abs(t1['w'] - t2['w']) > 1e-3:
+            continue          # a width step is a neck: a cut lays the wide width where only the neck cleared
         hw = max(t1['w'], t2['w']) / 2 + 0.01
         if ix.on_pad(net, ly, n, hw) or ix.on_via(net, ly, n, hw):
             continue

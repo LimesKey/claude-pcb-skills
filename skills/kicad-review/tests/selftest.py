@@ -2748,6 +2748,37 @@ def main(pick=(), listing=False, keep=False):
     sqi = kpcb_board.PolyIndex([(0.55, 0.55), (0.65, 0.55), (0.65, 0.95), (0.55, 0.95)])
     fails += check(sqi.touches((0.75, 0.75), 0.3) and not sqi.touches((0.75, 0.75), 0.05),
                    "PolyIndex.touches scans every cell inside tol")
+    # 2026-11-25 routing pass: a stroked gr_poly pad grows by half its stroke; the router grid keeps
+    # a track off a hole by the hole rule (here 0.6, past ring + clearance); a width-step corner is
+    # never cut; a board beside one other project is checked under that project's rules
+    pr = kcommon.parse_sexp('(pad "1" smd custom (primitives (gr_poly (pts (xy 0 0) (xy 1 0) (xy 1 1)) (width 0.2))))')
+    pr = pr[0] if isinstance(pr[0], list) else pr
+    gb = kpcb_board.bbox([q for poly in kpcb_board.Board._pad_prims(pr) for q in poly])
+    fails += check(gb[0] < -0.09 and gb[3] > 1.09, f"stroked gr_poly pad not grown by its half-width: {gb}")
+    hd = os.path.join(tmp.name, 'hole'); os.makedirs(hd, exist_ok=True)
+    open(os.path.join(hd, 'h.kicad_dru'), 'w').write('(version 1)\n(rule "h" (constraint hole_clearance (min 0.6mm)))\n')
+    seg = lambda x0, y0, x1, y1, w: (f' (segment (start {x0} {y0}) (end {x1} {y1}) (width {w}) (layer "F.Cu")'   # noqa: E731
+                                     f' (net "S") (uuid "s{x0}{y0}{w}"))')
+    open(os.path.join(hd, 'h.kicad_pcb'), 'w').write(
+        '(kicad_pcb (version 20240108) (generator "pcbnew") (layers (0 "F.Cu" signal) (2 "B.Cu" signal)'
+        ' (25 "Edge.Cuts" user)) (gr_rect (start 0 0) (end 10 10) (layer "Edge.Cuts"))'
+        ' (footprint "x:TP" (layer "F.Cu") (at 5 5) (property "Reference" "TP1") (attr smd)'
+        ' (pad "1" thru_hole circle (at 0 0) (size 0.5 0.5) (drill 0.2) (layers "*.Cu") (net "X")))'
+        + seg(1, 1, 3, 1, 0.2) + seg(3, 1, 3, 3, 0.4) + seg(6, 1, 8, 1, 0.3) + seg(8, 1, 8, 3, 0.3) + ')')
+    import kpcb_route, kpcb_smooth, kdrc
+    hb = kpcb_board.Board(os.path.join(hd, 'h.kicad_pcb'))
+    g = kpcb_route.Grid(hb, 'S', (4, 4, 6, 6), 0.05, 0.2, 0.6, 0.3, ['F.Cu'])
+    at = lambda x, y: g.blk['F.Cu'][round((y - g.y0) / g.res) * g.W + round((x - g.x0) / g.res)]   # noqa: E731
+    fails += check(at(5.75, 5) and not at(5.95, 5), "Grid: a track kept off a hole only by ring + clearance, not the hole rule")
+    cn = kpcb_smooth.corner_nodes(hb, set(), kpcb_smooth.Index(hb))
+    fails += check([round(c[3][0]) for c in cn] == [8], f"corner_nodes: a width-step corner offered for a cut: {cn}")
+    open(os.path.join(hd, 'h.kicad_pro'), 'w').write('{}')
+    shutil.copy(os.path.join(hd, 'h.kicad_pcb'), os.path.join(hd, 'n.kicad_pcb'))
+    bp, bs = kdrc.borrowed_copy(os.path.join(hd, 'n.kicad_pcb'))
+    fails += check(bs == 'h' and bp and os.path.exists(bp) and kdrc.borrowed_copy(os.path.join(hd, 'h.kicad_pcb')) == (None, None),
+                   f"kdrc: a writer's output not checked under the project beside it: {bp} {bs}")
+    if bp:
+        shutil.rmtree(os.path.dirname(bp), ignore_errors=True)
     # a 1 mm band of Q's own pour across a 17 mm Q track between the old 0/.25/.5/.75/1 samples,
     # no outline vertex on the track: one piece (+3V3 In2, 2026-10-27)
     import kpcb_copper

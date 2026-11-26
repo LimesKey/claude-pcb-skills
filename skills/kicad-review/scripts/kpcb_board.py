@@ -688,7 +688,16 @@ class Board:
                 continue
             w = _f(val(g, 'width')) / 2
             if g[0] == 'gr_poly':
-                out.append(Board._pts(g))
+                P = Board._pts(g)
+                out.append(P)
+                # a stroked polygon is inflated by its half-width (U15 TPS2595's 0.1 mm strokes: a
+                # track `smooth` laid read 0.107 mm off, DRC 0.053): each edge as a box w out
+                for (x0, y0), (x1, y1) in zip(P, P[1:] + P[:1]) if w > 0 else ():
+                    L = math.hypot(x1 - x0, y1 - y0)
+                    if L > 1e-9:
+                        dx, dy = (x1 - x0) / L * w, (y1 - y0) / L * w
+                        out.append([(x0 - dx - dy, y0 - dy + dx), (x1 + dx - dy, y1 + dy + dx),
+                                    (x1 + dx + dy, y1 + dy - dx), (x0 - dx + dy, y0 - dy - dx)])
             elif g[0] == 'gr_rect':
                 (x0, y0), (x1, y1) = Board._xy(g, 'start'), Board._xy(g, 'end')
                 out.append([(x0 - w, y0 - w), (x1 + w, y0 - w), (x1 + w, y1 + w), (x0 - w, y1 + w)])

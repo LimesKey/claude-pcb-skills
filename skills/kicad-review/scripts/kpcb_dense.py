@@ -396,7 +396,7 @@ def c_reroute(b, a):
     import copy, io, os, shutil, contextlib
     from kpcb_board import Board, _resolve_net
     from kpcb_edit import c_ripup
-    from kpcb_route import c_route, links
+    from kpcb_route import c_route, links, _planes
     names = []
     for nm in a.args:
         net, cand = _resolve_net(b, nm)
@@ -410,8 +410,16 @@ def c_reroute(b, a):
               if not names else "reroute: none of those nets is routed"); return 0
     rows = rows[:a.max]
     vc = a.via_cost
-    print(f"reroute: {len(rows)} net(s), each ripped and routed again on a copy; kept when complete and "
-          f"length + {vc:g} mm per via drops by >= 5%")
+    # what a designer refuses even when it is shorter: more vias, new track cutting an inner plane,
+    # a run thinner than the net had (beyond a neck per pad)
+    planes = sorted({ly for _n, ly in _planes(b) if ly not in b.outer}, key=b.copper.index)
+    def shape(B, net, w0=None):
+        T = [t for t in B.tracks if t['net'] == net]
+        return (sum(t['len'] for t in T if t['layer'] in planes), min((t['w'] for t in T), default=0.0),
+                sum(t['len'] for t in T if w0 and t['w'] < w0 - 1e-6))
+    print(f"reroute: {len(rows)} net(s), each ripped and routed again on a copy; kept when complete, "
+          f"length + {vc:g} mm per via drops by >= 5%, and it adds no via, no track on an inner plane "
+          f"({', '.join(planes) or 'none'}) and no run thinner than the net had")
     d = os.path.dirname(os.path.abspath(b.path))        # beside the .kicad_pro: the router reads its rules
     cur, tmp, kept = b.path, [], 0
     try:
@@ -444,7 +452,14 @@ def c_reroute(b, a):
             L2 = sum(t['len'] for t in B2.tracks if t['net'] == net)
             V2 = sum(1 for v in B2.vias if v['net'] == net)
             s1, s2 = L1 + vc * V1, L2 + vc * V2
-            if s2 < s1 * 0.95:
+            p1, w1, _n = shape(B, net)
+            p2, _w, thin = shape(B2, net, w1)
+            why = [f"+{V2 - V1} via(s)"] * (V2 > V1) + \
+                  [f"+{p2 - p1:.1f} mm on {'/'.join(planes)}"] * (p2 > p1 + 0.5) + \
+                  [f"{thin:.1f} mm thinner than its {w1:g} mm"] * (thin > 1.5 * npads)
+            if s2 < s1 * 0.95 and why:
+                print(f"{label}  -> {L2:6.1f} mm {V2} via(s)  kept: shorter, but {', '.join(why)}")
+            elif s2 < s1 * 0.95:
                 print(f"{label}  -> {L2:6.1f} mm {V2} via(s)  REROUTED")
                 cur, kept = t2, kept + 1
             else:

@@ -459,8 +459,11 @@ link; not GND, poured, PWR/RF/USB/diff-class or 9+ pad nets), worst first, or th
 (any class). Each in turn, on temp copies beside the board (the router reads the project's
 rules there): `ripup NET`, then `route NET` with the run's route flags (`--via-cost`,
 `--layers`, `--grid`...), and the result is kept only when the net is one piece again and
-length + `--via-cost` x vias drops by >= 5%; each kept one is in the board the next is routed
-on. Refused: locked copper, a net with its own pour. Without -o it is a dry run of the same.
+length + `--via-cost` x vias drops by >= 5% and it adds no via, no track on an inner plane layer
+(`_planes`: GND or > 20% poured) and no run thinner than the net's narrowest beyond 1.5 mm a pad
+(`kept: shorter, but +7 via(s), +45.1 mm on In1.Cu/In2.Cu, 71.5 mm thinner than its 0.2 mm`: the
+2026-11-25 SDA/SPI_CS reroute that read 7% better and wove through the board's densest block);
+each kept one is in the board the next is routed on. Refused: locked copper, a net with its own pour. Without -o it is a dry run of the same.
 The verdict lines say why one was kept: the router failed, it cannot complete the net without
 the old copper (the old route used a gap the grid calls closed), or the detour is the shortest
 legal path. Reference board scratch 2026-10-24: ANT_DETECT 57.4 mm 2 vias -> 43.6 mm 5 vias; I2C_HOST_IRQ

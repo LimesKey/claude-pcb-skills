@@ -18,7 +18,11 @@ python3 $D board.kicad_pcb scratch DIR [--from OTHER.kicad_pcb]   # a project co
 `scratch DIR` copies the project beside FILE (.kicad_pro, .kicad_dru, sheets, .net, k*.json,
 lib tables, a symlink per `${KIPRJMOD}` dir they name) into a new empty DIR, with FILE - or
 `--from` another board, e.g. one worked in ~/Downloads - under the project's stem, so DRC
-there checks the project's rules. A board opened alone gets a default .kicad_pro: every DRC
+there checks the project's rules. kicad-cli takes the rules from `<stem>.kicad_pro` only, so a
+writer's `-o n.kicad_pcb` beside `parsnip.kicad_pro` would be checked on KiCad's defaults (~1000
+false clearance/width errors on the reference board): `drc` runs a board with no .kicad_pro of
+its own, beside exactly one project, as that project's board in a temp copy (`--refill-save`
+copies the refilled board back) and says so in its header. A board opened alone gets a default .kicad_pro: every DRC
 header (and `doctor`) WARNs when the .kicad_pro beside a board has only the Default netclass,
 no patterns and no .kicad_dru.
 

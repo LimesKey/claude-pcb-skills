@@ -3,6 +3,31 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] kicad-review/kdrc - every writer prints `verify: kdrc.py OUT drc ...` and recipes.md runs DRC on each
+      step's `-o n.kicad_pcb`, but kicad-cli reads the rules from `<stem>.kicad_pro` only: beside
+      `parsnip.kicad_pro` that board was checked on KiCad's defaults (the 2026-11-25 clean-up pass read 944
+      errors, 1183 new vs the baseline, for 39 harmless edits; the unedited board renamed read 947). Done:
+      `drc` runs a board with no .kicad_pro of its own, beside exactly one project, as that project's board
+      in a temp `copy_project` (`--refill-save` copies it back; a git-tracked board is still refused) and
+      names the borrowed rules in its header. Same pass: 124 -> 124, 0 new. 2026-11-25.
+- [x] kicad-review/kpcb_board - a custom pad's stroked `gr_poly` primitive was read without its stroke
+      (gr_rect/circle/line had it): 8 pads on the reference board (TPS2595 U15) read 0.05 mm small all round,
+      so `smooth` laid +5V 0.053 mm from U15.7 (DRC 0.1). Done: each stroked edge adds a box half the width
+      out. Ad-hoc selftest check. 2026-11-25.
+- [x] kicad-review/kpcb_smooth corners - the corner pass cut a corner where a 0.3 mm neck meets a 0.8 mm run,
+      laying the connector at the wide width where only the neck cleared (`Clear` passes samples on the old
+      centreline): +5V 0.058 mm from 5V_RAW (rule 0.127) and a mask bridge at U15. The census already
+      names such a corner `width step`. Done: `corner_nodes` skips a width step. Ad-hoc check. 2026-11-25.
+- [x] kicad-review/kpcb_route Grid - the router grid (route, smooth's `Clear`, place, stitch, jogs) painted
+      holes into the via raster only, so a track kept off a PTH by ring + copper clearance (0.25 + 0.1) but
+      not by the hole rule (0.28 from the drill): `smooth --jogs` slid the USB pair to 0.271 mm from U5's EP
+      thermal via. Done: every foreign drill paints `_hole_clr` (moved here from kpcb_smooth) + w/2 into the
+      track rasters (a soft via's into its soft raster). Ad-hoc check. 2026-11-25.
+- [x] kicad-review/kpcb reroute - kept any route whose length + 1.5 mm per via dropped 5%: SDA/SPI_CS went
+      95.8 mm / 1 via -> 78.4 mm / 8 vias, 45 mm of it on the In1/In2 planes at 0.15 mm, weaving through the
+      densest block (seen side by side); ANT_DETECT 2 -> 5 vias. Higher `--via-cost 6 --inner-cost 3` still
+      gave 5-7 vias. Done: also refused when it adds a via, adds > 0.5 mm on an inner plane layer, or runs
+      > 1.5 mm per pad thinner than the net's narrowest; the line names which. 2026-11-25.
 - [x] kicad-review/kpcb zones - "what cuts the ground plane" had no command: the 2026-11-18 4-vs-6-layer
       session regexed the board file for track mm per layer (In1 2202 mm on 61 nets), and `zones` printed 56
       rows of 0-2% power pours with edge margins that mean nothing for them (long net names broke the columns).

@@ -807,6 +807,20 @@ def unignored_copy(board):
     return os.path.join(tmp, stem + '.kicad_pcb'), sorted(k for _, k in ign)
 
 
+def borrowed_copy(board):
+    """kicad-cli reads the rules from <stem>.kicad_pro beside the board, so a writer's output
+    (n.kicad_pcb beside parsnip.kicad_pro) is checked on KiCad's defaults: ~1000 false clearance
+    and width errors on the reference board. (temp board path, project stem) for a temp copy of
+    the one project in its folder holding this board, else (None, None)."""
+    d, f = os.path.split(os.path.abspath(board))
+    pros = glob.glob(os.path.join(d, '*.kicad_pro'))
+    if len(pros) != 1 or os.path.exists(os.path.join(d, os.path.splitext(f)[0] + '.kicad_pro')):
+        return None, None
+    tmp = tempfile.mkdtemp(prefix='kdrc-proj-')
+    stem = copy_project(board, tmp)[0]
+    return os.path.join(tmp, stem + '.kicad_pcb'), stem
+
+
 def load_cfg(board):
     cp = os.path.join(os.path.dirname(os.path.abspath(board)), 'kdrc.json')
     try:
@@ -886,10 +900,22 @@ def main():
         sys.stderr.write("--all runs on a temp copy (the .kicad_pro's ignored rules re-enabled): "
                          "--refill-save would save that copy - run them apart\n")
         return 3
+    borrowed = None
+    if not run:
+        run, borrowed = borrowed_copy(a.file)
     try:
         if a.cmd in ('both', 'drc'):
+            if borrowed and a.refill_save and _tracked(a.file):
+                sys.stderr.write(f"--refill-save writes {a.file}, which git tracks (the real board): refused.\n")
+                return 3
             df, unconn = do_drc(run or a.file, a)
             F += df
+            if borrowed and a.refill_save:
+                import shutil
+                shutil.copy2(run, a.file)
+            if borrowed:
+                a.cap_note = (f"rules: {borrowed}.kicad_pro (this board has no .kicad_pro of its own; checked as "
+                              f"{borrowed}.kicad_pcb in a temp copy)" + ('\n' + a.cap_note if a.cap_note else ''))
         if a.cmd in ('both', 'erc'):
             ef, roots, whole = do_erc(run or a.file, a)
             F += ef
