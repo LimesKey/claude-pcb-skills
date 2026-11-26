@@ -58,7 +58,7 @@ Attribute shorthands, resolved onto LCSC's real parameter names
 
 Useful flags
   --offline      selftest: the offline logic checks only (no network), exit 1 on failure
-  --golden DIR   selftest --golden DIR board.net: record 18 real outputs, then diff them
+  --golden DIR   selftest --golden DIR board.net: record 19 real outputs, then diff them
   --qty N        unit + extended price at that quantity, MOQ/multiple applied
   --sort         price (default) | stock | ATTR (iq, rdson, cap, any name; --desc flips)
   --pareto ATTR  rows no other row beats on both price and ATTR
@@ -199,6 +199,7 @@ GOLDEN = [
     "search TPS61033", "fpcheck {net}", "bom {net} --qty 5", "jlc {net}",
     "check {net} --qty 5",
     "pick LDO --pkg SOT-23-5 --vout 3.3 --sort iq", "alt C408972 -n 4",
+    "alt C25744 --qty 50",            # a 0402 10k: alt held its rare Voltage Rating and found nothing
 ]
 
 def golden(d, net):
@@ -308,8 +309,12 @@ def c_selftest(a):
         sk = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'SKILL.md')).read()
         nd = len(sk.split('description: ', 1)[1].split('\n---', 1)[0].strip())
         assert nd <= 1024, f'SKILL.md description {nd} chars > 1024'
+        h = subprocess.run([sys.executable, os.path.abspath(__file__), 'bom', '-h'],   # was the whole docstring
+                           capture_output=True, text=True).stdout
+        assert '--lcsc-csv' in h and '--json' in h and 'part.py bom b.net' in h and '--cap' not in h \
+            and 'Constraint grammar' not in h, 'part.py bom -h: bom entries and flags only'
         off = (f"OK    pick/alt parsing {_pick_selftest()}, fpcheck matcher {_fpcheck_selftest()}, "
-               f"ds names 6/6, wmsc v2 fallback, bom breaks/sheet-qty/split, mouser normaliser, LCSC marketplace, kcap bridge, lighting-LED note, broken fpcheck.json, "
+               f"ds names 6/6, wmsc v2 fallback, bom breaks/sheet-qty/split, mouser normaliser, LCSC marketplace, kcap bridge, lighting-LED note, broken fpcheck.json, bom -h, "
                f"description {nd} chars")
     except AssertionError as e:
         off = f"FAIL  {e}"
@@ -424,7 +429,11 @@ def c_show(a):
     for spec in a.args:
         got = resolve(spec, a)
         if not got:
-            print(f"{spec}: not found on LCSC or in JLC's library. For an MPN try "
+            key = {'mouser': ('mouser_api_key', 'MOUSER_API_KEY'),
+                   'digikey': ('digikey_client_id', 'DIGIKEY_CLIENT_ID')}.get(a.provider)
+            print(f"{spec}: --provider {a.provider} has no API key set, so nothing was searched "
+                  f"(${key[1]} or config.json {key[0]}; `part.py --help`)" if key and not cfg(*key) else
+                  f"{spec}: not found on LCSC or in JLC's library. For an MPN try "
                   f"`search` first, or `selftest` if every lookup is failing")
             bad = True
             continue
@@ -559,23 +568,58 @@ CMDS = {'selftest': c_selftest, 'search': c_search, 'show': c_show, 'ds': c_ds,
         'compare': c_compare, 'bom': c_bom, 'pick': c_pick, 'alt': c_alt,
         'jlc': c_jlc, 'check': c_check, 'fpcheck': c_fpcheck}
 
+def cmd_help(ap, cmd):
+    """`part.py CMD -h`: CMD's docstring entries and the flags whose help names CMD
+    (`bom:`, `pick/alt:`, `ds --save:`), not the whole 6 KB docstring"""
+    import textwrap
+    out, keep = [], False
+    for ln in __doc__.splitlines():
+        tok = ln.split()
+        if tok[:1] == ['part.py']:
+            keep = tok[1:2] == [cmd]
+        elif not ln.startswith(' ' * 6):           # an entry's continuation lines sit deeper
+            keep = False
+        if keep:
+            out.append(ln)
+    groups = {}                                    # one line for flags sharing a help text
+    for act in ap._actions:
+        m = re.match(r'([a-z]+(?:/[a-z]+)*)(?: --[\w-]+| constraint)?:', act.help or '')
+        if m and cmd in m.group(1).split('/'):
+            groups.setdefault(act.help, []).append(act)
+    if groups:
+        out.append(f"\n{cmd} flags:")
+    for h, acts in groups.items():
+        flag = ' '.join(x.option_strings[0] for x in acts)
+        if len(acts) == 1 and acts[0].nargs != 0:
+            flag += ' ' + (acts[0].metavar or acts[0].dest.upper())
+        if len(flag) > 22:
+            out.append(textwrap.fill(flag, 100, initial_indent='  ', subsequent_indent='  '))
+            flag = ''
+        out.append(textwrap.fill(h, 100, initial_indent=f"  {flag:<22} ", subsequent_indent=' ' * 25))
+    return '\n'.join(out + ["\n(`part.py --help` lists every command, flag, the constraint grammar and the "
+                            "provider keys)"])
+
 def main():
     ap = argparse.ArgumentParser(add_help=False)
     ap.add_argument('cmd', nargs='?', choices=list(CMDS))
     ap.add_argument('args', nargs='*')
-    ap.add_argument('-n', type=int, default=8)
-    ap.add_argument('--qty', type=int, default=None)
-    ap.add_argument('--provider', default='all', choices=['all', 'lcsc', 'jlc', 'digikey', 'mouser'])
+    ap.add_argument('-n', type=int, default=8, help='search/pick/alt: result count (default 8)')
+    ap.add_argument('--qty', type=int, default=None, metavar='N',
+                    help='search/show/compare/bom/check/jlc/pick/alt: unit + extended price at N, MOQ and '
+                         'multiple applied; bom/check/jlc: N boards (default 1), pick/alt default 100')
+    ap.add_argument('--provider', default='all', choices=['all', 'lcsc', 'jlc', 'digikey', 'mouser'],
+                    metavar='lcsc|jlc|digikey|mouser|all',
+                    help='search/show/ds/compare: where to look (default all; pick uses --source)')
     ap.add_argument('--site', default=cfg('site', 'PARTSEARCH_SITE') or 'US',
                     help='DigiKey locale site (US, CA, ...; default: config `site` or $PARTSEARCH_SITE, else US)')
     ap.add_argument('--currency', default=cfg('currency', 'PARTSEARCH_CURRENCY') or 'USD',
                     help='display currency (default: config `currency` or $PARTSEARCH_CURRENCY, else USD)')
-    ap.add_argument('--attrs', action='store_true')
+    ap.add_argument('--attrs', action='store_true', help='show/compare: every parameter, not just the headline ones')
     ap.add_argument('--table', action='store_true',
-                    help='for `show` with multiple SKUs: one compact row per part '
+                    help='show: with several SKUs, one compact row per part '
                          '(sku/mpn/mfr/pkg/stock/price/desc) instead of a verbose block')
-    ap.add_argument('--instock', action='store_true', help='drop zero-stock results')
-    ap.add_argument('--nods', action='store_true', help='skip datasheet verification')
+    ap.add_argument('--instock', action='store_true', help='search: drop zero-stock hits')
+    ap.add_argument('--nods', action='store_true', help='show: skip the datasheet verification')
     ap.add_argument('--save', action='store_true',
                     help='ds: download the verified PDF and index it with kdoc.py')
     ap.add_argument('--name', default='', help='ds --save: file name for the one part given '
@@ -593,7 +637,8 @@ def main():
                     help="bom: cheapest drop-in (alt's rules) for the N costliest lines")
     ap.add_argument('--lcsc-csv', dest='lcsc_csv', default='', metavar='OUT.csv',
                     help="bom: write the buy list as an upload for LCSC's BOM tool (lcsc.com/bom)")
-    ap.add_argument('--json', action='store_true')
+    ap.add_argument('--json', action='store_true',
+                    help='search/show/compare/bom/check/fpcheck/pick/alt: machine-readable output')
     ap.add_argument('--show-ok', dest='show_ok', action='store_true',
                     help='fpcheck: also list the footprints that matched')
     ap.add_argument('--confirm', action='store_true',
@@ -611,14 +656,14 @@ def main():
            'tol': ['--tolerance']}
     for f in FLAG_ATTRS:
         ap.add_argument('--' + f, *syn.get(f, []), dest=f, default=None,
-                        help='pick constraint: VALUE | LO..HI | >=X | A,B | ~text | !A')
+                        help='pick/alt constraint: VALUE | LO..HI | >=X | A,B | ~text | !A (alt: the caller\'s wins)')
     ap.add_argument('--minstock', '--min-stock', '--stock-min', type=int, default=100,
                     help='pick/alt: drop parts with less stock (default 100)')
     ap.add_argument('--cat', '--category', default=None,
                     help="pick: JLC category filter, any unique part of its name ('tvs', "
                          "'I/O Expanders'); pick infers one from the keyword when a word names one")
     ap.add_argument('--w', action='append', default=[], metavar='NAME=SPEC',
-                    help='pick constraint on any other attribute (repeatable)')
+                    help='pick/alt: a constraint on any other attribute (repeatable)')
     ap.add_argument('--sort', default='price', metavar='price|stock|ATTR',
                     help='pick: price (default), stock, or any attribute (a shorthand like iq/rdson/'
                          'cap or a verbatim name); an attribute sort pools its best values first')
@@ -629,24 +674,24 @@ def main():
                     help="pick: category + package from this part, limits from the flags "
                          "(--pkg '~' for any package)")
     ap.add_argument('--source', default='jlc', choices=['lcsc', 'jlc', 'both', 'digikey'],
-                    help='candidate pool: jlc (default) = JLC index with server-side '
+                    help='pick: the candidate pool: jlc (default) = JLC index with server-side '
                          'package/category/price sort; lcsc = keyword search + detail; '
                          'digikey = DigiKey parametric search (DigiKey prices). '
                          'Prices shown are LCSC retail for jlc/lcsc/both (except --basic)')
     ap.add_argument('--xcheck', action='store_true',
                     help='pick: run the same limits on DigiKey too and print both shortlists '
                          'in one spec table (no verdict)')
-    ap.add_argument('--basic', action='store_true', help='JLC Basic parts only (no $3 line fee)')
-    ap.add_argument('--nojlc', action='store_true', help='skip the Basic/Extended annotation')
+    ap.add_argument('--basic', action='store_true', help='pick/alt: JLC Basic parts only (no $3 line fee)')
+    ap.add_argument('--nojlc', action='store_true', help='pick/alt: skip the Basic/Extended annotation')
     ap.add_argument('--offline', action='store_true',
                     help='selftest: offline logic checks only, no network (exit 1 on failure)')
     ap.add_argument('--golden', default='', metavar='DIR',
                     help='selftest --golden DIR board.net: record, then diff, real outputs')
     ap.add_argument('--anystock', action='store_true', help='pick/alt: no stock floor at all (--minstock 0)')
-    ap.add_argument('--fields', action='store_true', help='list attribute names/values, do not filter')
-    ap.add_argument('--e12', action='store_true', help='fan a range over E12 not E6')
-    ap.add_argument('--pool', type=int, default=240, help='max LCSC parts to detail (default 240)')
-    ap.add_argument('--maxq', type=int, default=14, help='max keyword sub-queries for a range')
+    ap.add_argument('--fields', action='store_true', help='pick: list attribute names/values, do not filter')
+    ap.add_argument('--e12', action='store_true', help='pick: fan a range over E12 not E6')
+    ap.add_argument('--pool', type=int, default=240, help='pick: max LCSC parts to detail, --source lcsc (default 240)')
+    ap.add_argument('--maxq', type=int, default=14, help='pick: max keyword sub-queries for a range (default 14)')
     ap.add_argument('--jobs', type=int, default=8)
     ap.add_argument('-h', '--help', action='store_true')
     a, extra = ap.parse_known_args()
@@ -664,7 +709,7 @@ def main():
                    "`part.py --help` lists every flag.")
     a.args += [x for x in extra if not x.startswith('-')]   # keywords after flags
     if a.help or not a.cmd:
-        print(__doc__); return 0
+        print(cmd_help(ap, a.cmd) if a.cmd else __doc__); return 0
     if a.anystock:
         a.minstock = 0
     a.currency = (a.currency or 'USD').upper()

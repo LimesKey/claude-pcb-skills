@@ -566,6 +566,10 @@ def resolve(spec, a):
         hits, _ = mouser_search(spec, 1, a)
         if hits:
             out.append(hits[0])
+    if a.provider == 'jlc':            # was no branch: `show MPN --provider jlc` found nothing
+        hits, _ = jlc_search(spec, 1, a.fresh)
+        if hits:
+            out.append(jlc_detail(hits[0]['sku'], a.fresh) or hits[0])
     return out
 
 # ================================================================ JLCPCB catalog

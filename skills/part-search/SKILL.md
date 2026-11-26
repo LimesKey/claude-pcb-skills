@@ -67,7 +67,7 @@ constraints, use `pick`, not `search`.**
 | command | use |
 | --- | --- |
 | `pick 'MLCC' --cap 4.7u..100u --volt '>=25'` | parametric selection, sorted, filtered |
-| `alt C45783` | drop-ins for a part already on the board: same JLC category and package, equal-or-better on every rated parameter (voltage/current up, RDS(on)/Vf/leakage/clamp down, type/polarity equal); prints the holds as `--w` flags to loosen |
+| `alt C45783` | drop-ins for a part already on the board: same JLC category and package, equal-or-better on every rated parameter (voltage/current up, RDS(on)/Vf/leakage/clamp down, type/polarity equal); prints the holds as `--w` flags to loosen, and as `not held` any the category lists on under 1% of its parts |
 | `jlc board.net` | Basic vs Extended per part + total $3/line assembly fees |
 | `show C18164413` | ladder, stock, MOQ, multiple, params, category, verified datasheet; "Other Suppliers on LCSC" marketplace offers as their own source (not LCSC stock; price vs LCSC's own, far under = grey-market risk) |
 | `ds C42409135` | datasheet URL only, with pass/fail per candidate |
@@ -89,7 +89,7 @@ to JLC's record, labelled `[JLC ...]` with JLC catalog prices; `bom`/`check` lis
 separately and never add them to the LCSC total, and `fpcheck` checks them.
 `show` with several SKUs prints one verbose block per part by default; `--table`
 switches to one compact row per part, `--json` for machine-readable output.
-Exit codes: 0 ok, 1 nothing found.
+`part.py CMD -h` prints that command's examples and flags only. Exit codes: 0 ok, 1 nothing found.
 
 ## fpcheck: the REVIEW bucket and confirming equivalences
 

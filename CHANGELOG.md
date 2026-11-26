@@ -3,6 +3,25 @@
 Landed backlog entries and fixes, newest at the top. Reference only: the open
 work is in a local, untracked `BACKLOG.md`.
 
+- [x] part-search/part_pick - `alt` held every parameter the original lists, including ones its JLC category
+      does not carry or lists on a handful of parts, so every candidate failed them: on the current tree 10 of
+      the 12 parts the reference board's sessions `alt`'d found nothing, and so did `alt C25744` (a 0402 10k
+      1%: `--volt '>=50'` resolves to 'Voltage Rating', on 12 of 110,716 chip resistors, so the server pool
+      was those 12). `bom --alt N` went through the same path. Done: a hold (or alt's own --volt/--tol/...)
+      whose attribute is absent from the category's facets or listed on under 1% of its parts (+ package) is
+      dropped and named on a `not held:` line with its count (the gap measured: <= 0.03% vs >= 13% for every
+      hold that left rows). C25744 0 -> 59 matches, C29269950 (3k 0.1% thin film) 0 -> 4, the PTC fuse and
+      the 74LV1T34 buffer 0 -> 4 and 2; a connector/header still finds none (its colour/plastic text holds:
+      logged). Selftest: `_rare` in the pick checks. 2026-11-25.
+- [x] part-search/part - `part.py CMD -h` printed the whole 6.1 KB docstring for every command (11 lookups in 30
+      days on the reference board; 4 sessions then re-ran it, grepped `add_argument` or read part_bom.py to find
+      `bom --json` / `--lcsc-csv`). Done: `cmd_help` prints CMD's docstring entries plus the flags whose help
+      names CMD (`bom:`, `pick/alt:`, `ds --save:`; the untagged help strings got their commands), one line for
+      the 33 shared constraint flags: `bom -h` 1.3 KB, `show -h` 1.0 KB, `jlc -h` 0.4 KB. On the way: `show MPN
+      --provider mouser|digikey` with no key said "not found on LCSC or in JLC's library"; it now says no key was
+      set and nothing was searched, and `show MPN --provider jlc` found nothing (`resolve` had no jlc branch;
+      `search --provider jlc` found the same MPN): it takes JLC's top hit. Selftest: `bom -h` in the offline
+      checks. 2026-11-25.
 - [x] kicad-review/kpcb_assembly - a leadless part whose land runs past its Fab body (SOD-882) was not listed as
       needing paste, and big lands tied into a pour were not reported (owner's call, 2026-11-25). Done: a
       two-terminal SMD part with a body <= 1.05 x 0.65 mm counts a pad as under it when more than half the land

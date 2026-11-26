@@ -913,6 +913,20 @@ def _alt_hold(name, value):
         return ('>=' if rule == 'ge' else '<=') + fmt_si(x)
     return None
 
+def _rare(fac, names, tot):
+    """{name: parts listing it} for the names the category's facets lack or list on under
+    1% of its parts: no alternative can pass a hold on one, so alt drops it. Measured on the
+    reference board's alts: a connector's 'Voltage Rating (Max)' (absent) and 'Connector
+    Type' (3 of 97,971), a 0402 resistor's 'Voltage Rating' (12 of 110,716), a fuse's
+    'Resistance @ 25℃' (absent); the rarest one that still leaves rows is on 13%."""
+    out = {}
+    for n in names:
+        pn = facet_name(fac, n)
+        listed = sum(c for v, c in fac[pn].items() if v not in ('', '-')) if pn else 0
+        if listed < max(1, .01 * tot):
+            out[n] = listed
+    return out
+
 def _merge_jlc(p, jp):
     """LCSC's parameters plus the ranked ones only JLC lists (C408972's Voltage Dropout,
     C89600's Resistance Tolerance); all of JLC's when LCSC lists none. A JLC name that is an
@@ -938,7 +952,7 @@ def c_alt(a):
     if b.get('source') == 'LCSC':      # LCSC lists none for some (C113132), fewer for others: JLC's too
         p = b['params'] = _merge_jlc(p, (jlc_detail(b['sku'], a.fresh) or {}).get('params'))
     a.pkg = a.pkg or b.get('package')
-    used = set()
+    used, auto = set(), []
     for k in ('cap', 'res', 'ind', 'volt', 'tol', 'diel'):   # passives: exact names only
         name, v = _exact(p, k)
         if not name or v in ('', '-'):
@@ -953,6 +967,8 @@ def c_alt(a):
             setattr(a, k, ('>=' if k == 'volt' else '<=') + fmt_si(x))
         elif k == 'diel' and d in _DIEL_RANK:
             a.diel = ','.join(_DIEL_RANK[_DIEL_RANK.index(d):])
+        if getattr(a, k, None) is not None:
+            auto.append(k)
     mine = {_norm(w.split('=', 1)[0]) for w in a.w}
     holds = [(n, s) for n, v in p if n not in used and _norm(n) not in mine
              for s in [_alt_hold(n, v)] if s]
@@ -971,12 +987,21 @@ def c_alt(a):
     # numeric limits first (they become the table columns), secondary ratings last
     holds.sort(key=lambda h: (h[1][:1] not in '<>',
                               bool(re.search(r'dissipation|^vgs$', h[0].lower()))))
-    a.w = list(a.w) + [f"{n}={s}" for n, s in holds]
     jlc_annotate([b], a.jobs, a.fresh)
     cat = (b.get('category') or '').split('>')[-1].strip()
     a._jcat = b.get('jcat') or (b.get('category') if b['source'] == 'JLC' else None)
+    unheld = []
     if a._jcat:        # JLC's exact category + package beats LCSC keyword relevance
         a.source = 'jlc'
+        jkw = {'category': a._jcat, 'pkg': _one_pkg(a.pkg)}
+        fac = jlc_facets(jkw['category'], jkw['pkg'], a.fresh)
+        rare = _rare(fac, auto + [n for n, _s in holds], _jlc_total(jkw, a)) if fac else {}
+        for k in [k for k in auto if k in rare]:
+            unheld.append(f"--{k} {getattr(a, k)!r} ({rare[k]:,})")
+            setattr(a, k, None)
+        unheld += [f"--w '{n}={s}' ({rare[n]:,})" for n, s in holds if n in rare]
+        holds = [h for h in holds if h[0] not in rare]
+    a.w = list(a.w) + [f"{n}={s}" for n, s in holds]
     if a.args[1:]:
         a.args = a.args[1:]
     else:
@@ -988,7 +1013,9 @@ def c_alt(a):
           f"now {dmoney1(up0, b.get('currency') or 'USD', a)}@{q0}, "
           f"{ {'base':'BASIC','expand':'ext'}.get(b.get('library'), 'not in JLC lib') }\n"
           f"  holding (rerun `pick` with a subset of these to loosen):\n    "
-          + '\n    '.join(flags + [f"--w {w!r}" for w in a.w]) + "\n")
+          + '\n    '.join(flags + [f"--w {w!r}" for w in a.w])
+          + (f"\n  not held: under 1% of '{a._jcat}' lists it, so no candidate could pass (parts listing "
+             f"it): {', '.join(unheld)}" if unheld else '') + "\n")
     if third_note(b, q0, a.fresh):
         print(f"  {b.get('sku')} {third_note(b, q0, a.fresh)}\n")
     a._exclude = {b.get('sku')}
@@ -1080,6 +1107,12 @@ def _pick_selftest():
                   and clone_of({'sku': 'C9', 'mpn': 'BAT54S', 'mfr': 'A'}, [{'sku': 'C1', 'mpn': 'BAT54S', 'mfr': 'B'}]) is None)
     checks.append(bool(isat_note([('isat', '>=8', None)], None)) and bool(isat_note([], 'Isat'))
                   and not isat_note([('dcr', '<=0.05', None)], 'dcr'))
+    # alt held a 0402 resistor's 'Voltage Rating' (12 of 110,716 list it): every 10k found nothing
+    fac = {'Voltage Rating': {'50V': 12, '-': 900}, 'Resistance': {'10kΩ': 4000, '1kΩ': 6000},
+           'Pin Structure': {'1x2P': 99, '': 9}}
+    checks.append(_rare(fac, ['volt', 'res', 'Function', 'Pin Structure'], 10000) == {'volt': 12, 'Function': 0,
+                                                                                       'Pin Structure': 99}
+                  and _rare(fac, ['res', 'Function'], 0) == {'Function': 0})
     bad = [i for i, ok in enumerate(checks, 1) if not ok]
     assert not bad, f"pick self-test failed check(s) {bad}"
     return f"{len(checks)}/{len(checks)}"

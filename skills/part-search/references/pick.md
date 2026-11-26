@@ -133,6 +133,12 @@ held. A negative value (P-channel) flips the direction. It prints every hold as 
 number before `@`: a `4.6mΩ@4.5V` part beats `5mΩ@10V` on paper, and the column
 shows the condition so a different test voltage is visible.
 
+A parameter the category does not carry, or lists on under 1% of its parts (+ the
+package), is not held: no alternative could pass it, so holding it left nothing. The
+`not held:` line names each with its count (a 0402 resistor's `Voltage Rating`, 12 of
+110,716, emptied every resistor alt; a connector's `Connector Type`, 3 of 97,971; a
+fuse's `Resistance @ 25℃`, absent). Re-add one as a `pick --w` flag to insist on it.
+
 ## Constraint syntax
 
 Every `--flag` and every `--w NAME=SPEC` takes the same spec grammar:
